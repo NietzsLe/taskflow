@@ -16,16 +16,16 @@ This section provides complete framework context so the agent can advise the use
 ### 1.1 State Machine
 
 ```
-defined ──(user move)──► pending ──(executor pickup)──► processing ──(executor done)──► testing
-                              ▲                                 │                           │
-                              │                          (version change)          (all pass?)
-                              │                                 ▼                           │
-                              │                             pending                    ┌────┴────┐
-                              │                                 ▲                      ▼         ▼
-                              │                          (user reject)              review    processing
-                              │                                 ▲                      │    (with bugs)
-                              │                                 │                      ▼
-                              └─────────────────────────────────┴─────────────────── done
+defined ──(user move)──► pending ──(executor)──► processing ──(executor done)──► testing
+                              │                       │ │                         │
+                              │                  (block) │ (block)            (all pass?)
+                              │                       ▼ │   ▼                       │
+                              │                   blocked   blocked             ┌────┴────┐
+                              │                       │       │                 ▼         ▼
+                              │              (resolve)│  (resolve)            review    processing
+                              │                       ▼       ▼                 │    (with bugs)
+                              │                 processing  testing              │
+                              └──────────(user reject)─────────────────────►─── done
 ```
 
 ### 1.2 Transition Rules
@@ -42,6 +42,11 @@ defined ──(user move)──► pending ──(executor pickup)──► proc
 | review | pending | User | Reject |
 | pending | pending | User | Edit task → version++ |
 | defined | defined | User | Edit task → version++ |
+| processing | blocked | Executor | Has questions, cannot proceed |
+| testing | blocked | Tester | Has questions, cannot proceed |
+| blocked | processing | User | Questions resolved, return to processing |
+| blocked | testing | User | Questions resolved, return to testing |
+| blocked | pending | User | Questions resolved, return to pending |
 
 ### 1.3 Lock Mechanism
 
@@ -73,20 +78,23 @@ defined ──(user move)──► pending ──(executor pickup)──► proc
 - These do not conflict with the framework — the framework orchestrates, custom instructions guide agent behavior
 - Users can also add custom skills (`customSkills`) and custom tools (`customTools`)
 
-### 1.7 Pending Questions
+### 1.7 Blocked State
 
-When an agent (executor or tester) encounters a situation that needs user input, it writes a `pendingQuestion` to the task YAML:
+When an executor or tester encounters questions it cannot resolve, the task moves to `blocked/`. The task YAML stores:
 
 ```yaml
+previousState: processing  # or testing
 pendingQuestions:
   - id: "q1"
     askedAt: "2026-07-07T10:00:00Z"
     askedBy: "executor"
-    question: "MAP4D_API_KEY is not set. Should I add a placeholder?"
+    category: "implementation"
+    question: "Should I use NextAuth.js or custom auth?"
+    context: "Found existing JWT infrastructure in core-api/iam but task doesn't specify."
     answered: false
 ```
 
-The user can answer these via the `answer-questions` command. Agent sessions running executor/tester skills will also attempt to answer pending questions from previous runs before picking up new tasks.
+A notifier agent sends alerts through configured channels. The user resolves questions via `resolve-blocked` command, which moves the task back to its `previousState`.
 
 ### 1.8 Run Log Summaries
 
@@ -162,25 +170,15 @@ Display: ID, Name, Version, UpdatedAt, passRatio (if testing).
 - Other states must go through proper transitions
 - Common use: `move <id> pending` to make a `defined` task available for executor pickup
 
-### 2.7 `answer-questions [id]` — Answer pending questions
+### 2.7 `resolve-blocked [id]` — Resolve blocked tasks
 
-Check all tasks (or a specific task by ID) for unanswered `pendingQuestions`:
+List all blocked tasks (or a specific task by ID) with their pending questions:
 
-1. Read the task YAML, find `pendingQuestions` where `answered: false`
-2. Present each question to the user
-3. Record the user's answer:
-   ```yaml
-   pendingQuestions:
-     - id: "q1"
-       askedAt: "2026-07-07T10:00:00Z"
-       askedBy: "executor"
-       question: "MAP4D_API_KEY is not set..."
-       answered: true
-       answer: "Add placeholder key for now."
-       answeredAt: "2026-07-07T11:00:00Z"
-   ```
-4. Write run log action `answer-question` with summary of what was answered
-5. If the task is in `pending/` or `processing/`, the next executor session will pick it up
+1. Read `.tasks/blocked/` for blocked tasks
+2. Display task name, previous state, and all unanswered questions grouped by category
+3. To resolve: edit the task YAML, set `answered: true` and provide `answer` for each question
+4. Run `npx taskflow resolve-blocked <id>` again — if all questions answered, task moves back to `previousState`
+5. Write run log action `resolve-blocked` with summary
 
 ### 2.8 `setup-custom <executor|tester>` — Configure custom instructions
 

@@ -27,6 +27,7 @@ export function initTaskDir(targetDir: string): void {
   console.log('  .tasks/testing/');
   console.log('  .tasks/review/');
   console.log('  .tasks/done/');
+  console.log('  .tasks/blocked/');
   console.log('  .tasks/locks/');
   console.log('  .tasks/runs/');
   console.log('  .tasks/config.yaml');
@@ -41,6 +42,7 @@ export function installSkills(targetDir: string): void {
     'taskflow-lock-releaser',
     'taskflow-user',
     'taskflow-init',
+    'taskflow-notifier',
   ];
 
   for (const name of skillNames) {

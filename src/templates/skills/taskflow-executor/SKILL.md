@@ -20,19 +20,23 @@ Instructions for the agent executing a task. The agent reads this skill to know 
 
 ---
 
-## PENDING QUESTIONS — CHECK BEFORE STARTING
+## PENDING QUESTIONS — COLLECT ALL BEFORE BLOCKING
 
-Before picking up a new task, check ALL pending tasks for `pendingQuestions`:
+When you encounter a situation requiring user input, do NOT block immediately for one question. Instead:
 
-1. Read all `.yaml` files in `.tasks/pending/` and `.tasks/processing/`
-2. For each task, check the `pendingQuestions` array
-3. If any question has `answered: false`:
-   - Do NOT pick that task yet
-   - Instead, try to answer the question based on context (codebase, previous runs, specs)
-   - If you can answer → write the answer into `pendingQuestions[].answer`, set `answered: true`, `answeredAt: <now>`
-   - Write a run log entry with summary: "Answered pending question on task <id>: <question>"
-   - If you cannot answer → leave it for the user, move on to another task
-4. Only pick up tasks with no unanswered pending questions
+1. Continue working on parts that don't need the answer
+2. Note down EVERY question/uncertainty you encounter
+3. Only when you cannot proceed further without user input:
+   a. Compile ALL questions into a single `pendingQuestions` array
+   b. For each question, set a `category` (e.g., "implementation", "environment", "config")
+   c. Write a `context` explaining WHY you're asking (what you found, what's missing)
+   d. Group related questions by category
+   e. Set `previousState: processing` in the task YAML
+   f. Move task to `blocked/` ONCE
+   g. Write run log with summary listing all questions
+   h. Release lock and STOP
+
+Only block if you have at least one question. If you can resolve it yourself through codebase investigation, do so.
 
 ---
 

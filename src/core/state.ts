@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { TaskState } from './types';
 
-const STATE_DIRS: TaskState[] = ['defined', 'pending', 'processing', 'testing', 'review', 'done'];
+const STATE_DIRS: TaskState[] = ['defined', 'pending', 'processing', 'testing', 'review', 'done', 'blocked'];
 
 export type Actor = 'executor' | 'tester' | 'user';
 
@@ -10,8 +10,9 @@ export const VALID_TRANSITIONS: Record<TaskState, { to: TaskState; actor: Actor 
   defined:    [{ to: 'pending', actor: 'user' }],
   pending:    [{ to: 'processing', actor: 'executor' }, { to: 'processing', actor: 'user' },
                { to: 'testing', actor: 'user' }, { to: 'review', actor: 'user' }, { to: 'done', actor: 'user' }],
-  processing: [{ to: 'testing', actor: 'executor' }, { to: 'pending', actor: 'executor' }],
-  testing:    [{ to: 'review', actor: 'tester' }, { to: 'processing', actor: 'tester' }],
+  processing: [{ to: 'testing', actor: 'executor' }, { to: 'pending', actor: 'executor' }, { to: 'blocked', actor: 'executor' }],
+  testing:    [{ to: 'review', actor: 'tester' }, { to: 'processing', actor: 'tester' }, { to: 'blocked', actor: 'tester' }],
+  blocked:    [{ to: 'processing', actor: 'user' }, { to: 'testing', actor: 'user' }, { to: 'pending', actor: 'user' }],
   review:     [{ to: 'done', actor: 'user' }, { to: 'pending', actor: 'user' }],
   done:       [],
 };

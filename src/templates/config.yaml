@@ -75,20 +75,124 @@ tester:
   customTools: []
 
 user:
-  allowMoveFromStates: ["defined", "pending"]
+  allowMoveFromStates: ["defined", "pending", "blocked"]
   requireVersioningForActive: true
 
 notification:
   enabled: true
+  description: |
+    Configure notification channels to alert users when tasks are blocked.
+    The notifier agent reads this config and sends alerts through all enabled channels.
+    Every channel MUST have a "guide" field with natural language instructions on how to connect and use it.
   channels:
     - type: "console"
       enabled: true
+      guide: |
+        No setup needed. Notifications are printed to the terminal when the notifier agent runs.
+        This channel is always available.
+      description: "Output to terminal — always available, no setup needed"
+
     - type: "file"
       enabled: true
       path: ".tasks/notifications.log"
-  events:
-    taskBlocked: true
-    taskTestFailed: true
-    taskCompleted: true
-    staleLockReleased: true
-    versionChanged: true
+      guide: |
+        No setup needed. Notifications are appended to the file specified in "path".
+        Check this file periodically or use a log viewer. The file is markdown-formatted for readability.
+      description: "Append notifications to a markdown log file"
+
+    - type: "webhook"
+      enabled: false
+      url: ""
+      method: "POST"
+      format: "slack"
+      guide: |
+        To set up a webhook notification channel:
+
+        1. Slack:
+           - Go to https://api.slack.com/messaging/webhooks
+           - Create a new app or select an existing one
+           - Add an Incoming Webhook to a channel
+           - Copy the webhook URL (looks like https://hooks.slack.com/services/...)
+           - Paste it into the "url" field below
+           - Set "format" to "slack"
+
+        2. Discord:
+           - Open Discord server settings > Integrations > Webhooks
+           - Click "New Webhook" and select a channel
+           - Copy the webhook URL
+           - Paste it into "url" and set "format" to "discord"
+
+        3. Microsoft Teams:
+           - Open the channel > Connectors > Incoming Webhook
+           - Name it and copy the URL
+           - Paste into "url" and set "format" to "teams"
+
+        4. Generic HTTP endpoint:
+           - Any service that accepts HTTP POST with JSON body
+           - Set "format" to "generic"
+      description: "Send HTTP POST to a webhook URL (Slack, Discord, Teams)"
+
+    - type: "email"
+      enabled: false
+      smtpHost: ""
+      smtpPort: 587
+      smtpUser: ""
+      smtpPassword: ""
+      from: ""
+      to: ""
+      guide: |
+        To set up email notifications via SMTP:
+
+        1. Gmail:
+           - Enable 2-factor authentication on your Google account
+           - Go to https://myaccount.google.com/apppasswords
+           - Generate an App Password (16 characters)
+           - Set smtpHost: "smtp.gmail.com", smtpPort: 587
+           - Set smtpUser: your Gmail address
+           - Set smtpPassword: the App Password (NOT your real password)
+           - Set from: your Gmail address, to: recipient address
+
+        2. Outlook/Office365:
+           - Set smtpHost: "smtp.office365.com", smtpPort: 587
+           - Use your Office365 credentials
+
+        3. Amazon SES:
+           - Set smtpHost: your SES endpoint
+           - Set smtpPort: 587
+           - Use your SES SMTP credentials
+
+        4. Any SMTP server:
+           - Set smtpHost and smtpPort to your server
+           - Set smtpUser and smtpPassword to your credentials
+      description: "Send email via SMTP"
+
+    - type: "custom"
+      enabled: false
+      guide: |
+        Describe how to send notifications using this channel. The notifier agent will
+        read your instructions and execute them.
+
+        Examples:
+        - Telegram: "Send a message via Telegram bot API. Use curl to POST to
+          https://api.telegram.org/bot<TOKEN>/sendMessage with chat_id=<CHAT_ID> and
+          text=<message>. Replace <TOKEN> with your bot token from @BotFather."
+        - SMS via Twilio: "Use the Twilio API to send an SMS. Set ACCOUNT_SID and
+          AUTH_TOKEN as environment variables. POST to Twilio Messages API."
+        - Desktop notification: "Use PowerShell to show a Windows notification."
+        - Any custom method: Describe the exact steps and commands.
+      description: "Custom channel — describe how to send notifications"
+
+  blockedCheckIntervalSeconds: 60
+  messageTemplate: |
+    ## Blocked: {{taskName}} ({{taskId}})
+
+    **Was in:** {{previousState}} | **By:** {{agentType}} | **At:** {{timestamp}}
+    **Description:** {{taskDescription}}
+
+    ### Questions ({{questionCount}})
+    {{questionsGrouped}}
+
+    ### Recent activity
+    {{recentRunSummary}}
+
+    **Resolve:** `npx taskflow resolve-blocked {{taskId}}`

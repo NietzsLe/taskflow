@@ -37,6 +37,7 @@ npx taskflow approve <task-id>
 ├── testing/                     # Tasks being tested
 ├── review/                      # Tasks awaiting human approval
 ├── done/                        # Completed tasks
+├── blocked/                     # Tasks blocked pending user questions
 ├── locks/                       # Mutex lock files
 │   ├── task-<id>.lock
 │   └── infra.lock
@@ -48,6 +49,7 @@ npx taskflow approve <task-id>
     │   ├── login-flow_001.md
     │   └── filter-tx_002.md
     ├── .seq                      # Global run counter
+    ├── notifier-log.md           # Notifier log
     └── releaser-log.md           # Lock-releaser log
 ```
 
@@ -64,16 +66,16 @@ Example: `2026-07-07_login-flow_001.yaml`
 ## State Machine
 
 ```
-defined ──(user move)──► pending ──(executor pickup)──► processing ──(executor done)──► testing
-                              ▲                                 │                           │
-                              │                          (version change)          (all pass?)
-                              │                                 ▼                           │
-                              │                             pending                    ┌────┴────┐
-                              │                                 ▲                      ▼         ▼
-                              │                          (user reject)              review    processing
-                              │                                 ▲                      │    (with bugs)
-                              │                                 │                      ▼
-                              └─────────────────────────────────┴─────────────────── done
+defined ──(user move)──► pending ──(executor)──► processing ──(executor done)──► testing
+                              │                       │ │                         │
+                              │                  (block) │ (block)            (all pass?)
+                              │                       ▼ │   ▼                       │
+                              │                   blocked   blocked             ┌────┴────┐
+                              │                       │       │                 ▼         ▼
+                              │              (resolve)│  (resolve)            review    processing
+                              │                       ▼       ▼                 │    (with bugs)
+                              │                 processing  testing              │
+                              └──────────(user reject)─────────────────────►─── done
 ```
 
 | From | To | By | Condition |
@@ -82,8 +84,13 @@ defined ──(user move)──► pending ──(executor pickup)──► proc
 | pending | processing | Executor | Pick up task, acquire lock |
 | processing | testing | Executor | Implementation done |
 | processing | pending | Executor | Version change detected |
+| processing | blocked | Executor | Has questions, cannot proceed |
 | testing | review | Tester | All flows pass |
 | testing | processing | Tester | Flow fails |
+| testing | blocked | Tester | Has questions, cannot proceed |
+| blocked | processing | User | Questions resolved |
+| blocked | testing | User | Questions resolved |
+| blocked | pending | User | Questions resolved |
 | review | done | User | Approve |
 | review | pending | User | Reject |
 
@@ -195,6 +202,7 @@ TaskFlow installs 5 skills into `.agents/skills/` during `init`.
 | `taskflow-executor` | `.agents/skills/` | Pick pending tasks, implement, move to testing |
 | `taskflow-tester` | `.agents/skills/` | Pick testing tasks, run flows, move to review or back |
 | `taskflow-lock-releaser` | `.agents/skills/` | Run one check cycle to clean up stale locks |
+| `taskflow-notifier` | `.agents/skills/` | Run one check cycle, notify user about blocked tasks |
 | `taskflow-user` | `.agents/skills/` | Help the user interact with the system |
 
 ### How to use
@@ -290,7 +298,7 @@ Custom instructions/skills/tools do **not** conflict with the framework. The fra
 | `npx taskflow unlock [id]` | Force release a lock (without args: infra lock) |
 | `npx taskflow unlock --all` | Release all locks |
 | `npx taskflow runs` | View run logs (`--task <id>`, `--session <id>`, `--agent <type>`) |
-| `npx taskflow answer-questions [id]` | Check tasks for unanswered pending questions |
+| `npx taskflow resolve-blocked [id]` | List/resolve blocked tasks with pending questions |
 | `npx taskflow setup-custom <agent>` | Show instructions for configuring custom instructions (executor or tester) |
 
 ---

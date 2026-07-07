@@ -47,9 +47,28 @@ export interface TaskFlowConfig {
   };
   notification: {
     enabled: boolean;
-    channels: { type: string; enabled: boolean; path?: string }[];
-    events: Record<string, boolean>;
+    description: string;
+    channels: NotificationChannel[];
+    blockedCheckIntervalSeconds: number;
+    messageTemplate: string;
   };
+}
+
+export interface NotificationChannel {
+  type: string;
+  enabled: boolean;
+  guide: string;
+  description?: string;
+  path?: string;
+  url?: string;
+  method?: string;
+  format?: string;
+  smtpHost?: string;
+  smtpPort?: number;
+  smtpUser?: string;
+  smtpPassword?: string;
+  from?: string;
+  to?: string;
 }
 
 export interface CustomSkill {
@@ -194,22 +213,118 @@ export function getDefaultConfig(): TaskFlowConfig {
       customTools: [],
     },
     user: {
-      allowMoveFromStates: ['defined', 'pending'],
+      allowMoveFromStates: ['defined', 'pending', 'blocked'],
       requireVersioningForActive: true,
     },
     notification: {
       enabled: true,
+      description: 'Configure notification channels to alert users when tasks are blocked. The notifier agent reads this config and sends alerts through all enabled channels.',
       channels: [
-        { type: 'console', enabled: true },
-        { type: 'file', enabled: true, path: '.tasks/notifications.log' },
+        {
+          type: 'console',
+          enabled: true,
+          guide: 'No setup needed. Notifications are printed to the terminal when the notifier agent runs. This channel is always available.',
+          description: 'Output to terminal — always available, no setup needed',
+        },
+        {
+          type: 'file',
+          enabled: true,
+          path: '.tasks/notifications.log',
+          guide: 'No setup needed. Notifications are appended to the file specified in "path". Check this file periodically or use a log viewer. The file is markdown-formatted for readability.',
+          description: 'Append notifications to a markdown log file',
+        },
+        {
+          type: 'webhook',
+          enabled: false,
+          url: '',
+          method: 'POST',
+          format: 'slack',
+          guide: `To set up a webhook notification channel:
+
+1. Slack:
+   - Go to https://api.slack.com/messaging/webhooks
+   - Create a new app or select an existing one
+   - Add an Incoming Webhook to a channel
+   - Copy the webhook URL (looks like https://hooks.slack.com/services/...)
+   - Paste it into the "url" field below
+   - Set "format" to "slack"
+
+2. Discord:
+   - Open Discord server settings > Integrations > Webhooks
+   - Click "New Webhook" and select a channel
+   - Copy the webhook URL
+   - Paste it into "url" and set "format" to "discord"
+
+3. Microsoft Teams:
+   - Open the channel > Connectors > Incoming Webhook
+   - Name it and copy the URL
+   - Paste into "url" and set "format" to "teams"
+
+4. Generic HTTP endpoint:
+   - Any service that accepts HTTP POST with JSON body
+   - Set "format" to "generic"`,
+          description: 'Send HTTP POST to a webhook URL (Slack, Discord, Teams)',
+        },
+        {
+          type: 'email',
+          enabled: false,
+          smtpHost: '',
+          smtpPort: 587,
+          smtpUser: '',
+          smtpPassword: '',
+          from: '',
+          to: '',
+          guide: `To set up email notifications via SMTP:
+
+1. Gmail:
+   - Enable 2-factor authentication on your Google account
+   - Go to https://myaccount.google.com/apppasswords
+   - Generate an App Password (16 characters)
+   - Set smtpHost: "smtp.gmail.com", smtpPort: 587
+   - Set smtpUser: your Gmail address
+   - Set smtpPassword: the App Password (NOT your real password)
+   - Set from: your Gmail address, to: recipient address
+
+2. Outlook/Office365:
+   - Set smtpHost: "smtp.office365.com", smtpPort: 587
+   - Use your Office365 credentials
+
+3. Amazon SES:
+   - Set smtpHost: your SES endpoint (e.g., email-smtp.us-east-1.amazonaws.com)
+   - Set smtpPort: 587
+   - Use your SES SMTP credentials (not AWS access keys)
+
+4. Any SMTP server:
+   - Set smtpHost and smtpPort to your server
+   - Set smtpUser and smtpPassword to your credentials`,
+          description: 'Send email via SMTP',
+        },
+        {
+          type: 'custom',
+          enabled: false,
+          guide: `Describe how to send notifications using this channel. The notifier agent will read your instructions and execute them.
+
+Examples:
+- Telegram: "Send a message via Telegram bot API. Use curl to POST to https://api.telegram.org/bot<TOKEN>/sendMessage with chat_id=<CHAT_ID> and text=<message>. Replace <TOKEN> with your bot token from @BotFather and <CHAT_ID> with your chat ID."
+- SMS: "Use the Twilio API to send an SMS. Set ACCOUNT_SID and AUTH_TOKEN as environment variables. POST to https://api.twilio.com/2010-04-01/Accounts/<SID>/Messages with From=<PHONE>, To=<PHONE>, Body=<message>."
+- Desktop notification: "Use PowerShell to show a Windows notification: run powershell -Command \\"[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms'); [System.Windows.Forms.MessageBox]::Show('<message')\\""
+- Any custom method: Describe the exact steps and commands the agent should run.`,
+          description: 'Custom channel — describe how to send notifications and the agent will follow your instructions',
+        },
       ],
-      events: {
-        taskBlocked: true,
-        taskTestFailed: true,
-        taskCompleted: true,
-        staleLockReleased: true,
-        versionChanged: true,
-      },
+      blockedCheckIntervalSeconds: 60,
+      messageTemplate: `## Blocked: {{taskName}} ({{taskId}})
+
+**Was in:** {{previousState}} | **By:** {{agentType}} | **At:** {{timestamp}}
+**Description:** {{taskDescription}}
+
+### Questions ({{questionCount}})
+{{questionsGrouped}}
+
+### Recent activity
+{{recentRunSummary}}
+
+**Resolve:** \`npx taskflow resolve-blocked {{taskId}}\``,
     },
   };
 }
@@ -268,8 +383,10 @@ export function deepMergeConfig(defaults: TaskFlowConfig, parsed: Partial<TaskFl
     },
     notification: {
       enabled: parsed.notification?.enabled ?? defaults.notification.enabled,
-      channels: mergeArray(defaults.notification.channels, parsed.notification?.channels),
-      events: { ...defaults.notification.events, ...parsed.notification?.events },
+      description: parsed.notification?.description ?? defaults.notification.description,
+      channels: parsed.notification?.channels ?? defaults.notification.channels,
+      blockedCheckIntervalSeconds: parsed.notification?.blockedCheckIntervalSeconds ?? defaults.notification.blockedCheckIntervalSeconds,
+      messageTemplate: parsed.notification?.messageTemplate ?? defaults.notification.messageTemplate,
     },
   };
 }

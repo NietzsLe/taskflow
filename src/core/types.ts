@@ -13,6 +13,7 @@ export interface TaskYaml {
   versions?: Record<string, VersionSnapshot>;
   bugs?: Bug[];
   blockedReason?: string;
+  previousState?: string;
   pendingQuestions?: PendingQuestion[];
 }
 
@@ -20,7 +21,9 @@ export interface PendingQuestion {
   id: string;
   askedAt: string;
   askedBy: string;
+  category: string;
   question: string;
+  context?: string;
   answered: boolean;
   answer?: string;
   answeredAt?: string;
@@ -77,7 +80,7 @@ export interface RunLogEntry {
   details: string | null;
 }
 
-export type TaskState = 'defined' | 'pending' | 'processing' | 'testing' | 'review' | 'done';
+export type TaskState = 'defined' | 'pending' | 'processing' | 'testing' | 'review' | 'done' | 'blocked';
 
 export function generateSessionId(): string {
   return uuidv4();

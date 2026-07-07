@@ -11,7 +11,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { TaskYaml, TaskState } from './core/types';
 import { editTask } from './edit';
 
-const VALID_STATES: TaskState[] = ['defined', 'pending', 'processing', 'testing', 'review', 'done'];
+const VALID_STATES: TaskState[] = ['defined', 'pending', 'processing', 'testing', 'review', 'done', 'blocked'];
 const VALID_AGENTS = ['executor', 'tester', 'user', 'lock-releaser'];
 
 const program = new Command();
@@ -464,39 +464,73 @@ program
   });
 
 program
-  .command('answer-questions')
-  .description('Check tasks for unanswered pending questions')
-  .argument('[id]', 'Specific task ID to check')
+  .command('resolve-blocked')
+  .description('List blocked tasks with pending questions and resolve them')
+  .argument('[id]', 'Specific task ID to resolve')
   .action((id?: string) => {
     const taskDir = path.join(process.cwd(), '.tasks');
-    const { listTasks } = require('./core/state');
     const tasks = id
-      ? listTasks(taskDir).filter((t: { id: string }) => t.id === id)
-      : listTasks(taskDir);
+      ? listTasks(taskDir, 'blocked').filter((t: { id: string }) => t.id === id)
+      : listTasks(taskDir, 'blocked');
 
-    let found = false;
+    if (tasks.length === 0) {
+      console.log('No blocked tasks found.');
+      return;
+    }
+
     for (const t of tasks) {
       const filePath = getTaskFilePath(taskDir, t.id);
       if (!filePath) continue;
       try {
         const raw = fs.readFileSync(filePath, 'utf-8');
         const task = parseYaml(raw) as TaskYaml;
+        console.log(`\n=== ${t.id} (blocked, was: ${task.previousState || 'unknown'}) ===`);
+        console.log(`Name: ${task.name}`);
+        console.log(`Description: ${task.description?.slice(0, 200)}`);
         if (task.pendingQuestions && task.pendingQuestions.length > 0) {
           const unanswered = task.pendingQuestions.filter(q => !q.answered);
           if (unanswered.length > 0) {
-            found = true;
-            console.log(`\n=== ${t.id} (${t.state}) ===`);
+            console.log(`\nQuestions (${unanswered.length}):`);
             for (const q of unanswered) {
-              console.log(`  [${q.id}] Asked by ${q.askedBy} at ${q.askedAt}`);
+              console.log(`  [${q.id}] Category: ${q.category}`);
+              console.log(`  Asked by ${q.askedBy} at ${q.askedAt}`);
               console.log(`  Question: ${q.question}`);
+              if (q.context) console.log(`  Context: ${q.context}`);
               console.log();
             }
+            console.log(`To resolve: edit the task YAML and set answered: true with your answer.`);
+            console.log(`Then run: npx taskflow move ${t.id} ${task.previousState || 'pending'}`);
+          } else {
+            console.log('All questions answered. Ready to unblock.');
+            const prevState = task.previousState as TaskState || 'pending';
+            if (moveTask(taskDir, t.id, prevState)) {
+              appendRunLog(taskDir, {
+                timestamp: new Date().toISOString(),
+                agentType: 'user',
+                sessionId: 'cli',
+                agentName: null,
+                taskId: t.id,
+                taskVersion: task.version,
+                taskState: 'blocked',
+                action: 'resolve-blocked',
+                description: `User resolved blocked task '${t.id}', moved back to ${prevState}`,
+                summary: `All pending questions answered. Task moved from blocked back to ${prevState}.`,
+                result: 'success',
+                duration: 0,
+                error: null,
+                details: null,
+              });
+              console.log(`Task '${t.id}' moved back to ${prevState}.`);
+            }
+          }
+        } else {
+          console.log('No pending questions. Task can be unblocked.');
+          const prevState = task.previousState as TaskState || 'pending';
+          if (moveTask(taskDir, t.id, prevState)) {
+            console.log(`Task '${t.id}' moved back to ${prevState}.`);
           }
         }
       } catch {}
-    }
-    if (!found) {
-      console.log('No unanswered pending questions found.');
     }
   });
 
