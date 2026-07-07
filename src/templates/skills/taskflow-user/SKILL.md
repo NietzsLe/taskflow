@@ -1,3 +1,8 @@
+---
+name: taskflow-user
+description: Help users interact with the task system. List, add, edit, approve, reject tasks. For user-facing agents.
+---
+
 # taskflow-user
 
 Instructions for the agent assisting the user with the task system. The user speaks commands, and the agent reads this skill to know how to respond.

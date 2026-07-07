@@ -1,3 +1,8 @@
+---
+name: taskflow-lock-releaser
+description: Clean up stale locks. Check heartbeat, release stale task/infra locks, log results. For lock-releaser agents.
+---
+
 # taskflow-lock-releaser
 
 Instructions for the agent cleaning up stale locks. The agent runs ONE check cycle per invocation, then stops. The external `/loop` mechanism handles restarting.

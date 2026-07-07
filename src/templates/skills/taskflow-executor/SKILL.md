@@ -1,3 +1,8 @@
+---
+name: taskflow-executor
+description: Pick pending tasks, implement, acquire lock, heartbeat, move to testing. For executor agents.
+---
+
 # taskflow-executor
 
 Instructions for the agent executing a task. The agent reads this skill to know how to pick a task, acquire a lock, implement, and transition state.

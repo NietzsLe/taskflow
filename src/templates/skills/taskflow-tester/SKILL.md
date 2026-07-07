@@ -1,3 +1,8 @@
+---
+name: taskflow-tester
+description: Pick testing tasks, run test flows, acquire locks, check infrastructure, move to review or back to processing. For tester agents.
+---
+
 # taskflow-tester
 
 Instructions for the agent testing a task. The agent reads this skill to know how to pick a task, acquire locks, run test flows, and transition state.

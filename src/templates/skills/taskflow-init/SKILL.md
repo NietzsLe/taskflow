@@ -1,3 +1,8 @@
+---
+name: taskflow-init
+description: Bootstrap TaskFlow framework into a project. Check prerequisites, run init, configure, verify installation. For setup agents.
+---
+
 # taskflow-init
 
 Instructions for the agent installing the TaskFlow framework into a project. The agent reads this skill when the user requests "install taskflow" or "setup taskflow".
