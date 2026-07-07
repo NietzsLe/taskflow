@@ -1,0 +1,92 @@
+# TaskFlow Configuration
+# All skills must read this file to comply with system parameters
+
+system:
+  name: "TaskFlow"
+  version: "1.0.0"
+  projectRoot: "."
+  taskDir: ".tasks"
+
+heartbeat:
+  intervalSeconds: 60
+  jitterSeconds: 5
+  staleThresholdSeconds: 120
+  lockReleaserIntervalSeconds: 60
+
+lock:
+  acquireMode: "create-exclusive"
+  releaseMode: "delete-file"
+
+test:
+  passRatioRequired: 1.0
+  maxRetriesPerFlow: 3
+  infraLockRequired: true
+  skipPassedFlows: true
+  warnNoBrowserMCP: true
+
+browserMCP:
+  - name: "playwriter"
+    available: false
+    lastCheck: null
+    description: "Playwriter MCP — browser automation tool"
+    # Note: The agent must have this MCP tool connected already.
+    # This config only declares which connected MCP tools can be used for UI tests.
+
+infrastructure:
+  defaultEnvironment: "dev"
+  environments: {}
+  seed: []
+
+runLog:
+  enabled: true
+  filePerDay: true
+  maxReleaserLogLines: 100
+
+executor:
+  maxPickupAttempts: 5
+  pickupRetryDelaySeconds: 30
+  customInstructions: |
+    ## Supplementary instructions for the Executor Agent
+    - Use the brainstorming skill to clarify requirements before implementing
+    - Reference docs/design before writing code
+    - Run npm run lint -- --fix after implementation
+    (Edit this section to match your needs)
+  customSkills:
+    - name: "requirement-analysis"
+      path: ".opencode/skills/requirement-analysis/SKILL.md"
+      description: "Skill for analyzing requirements before implementation"
+  customTools: []
+
+tester:
+  infraLockRequired: true
+  warnNoBrowserMCP: true
+  skipPassedFlows: true
+  customInstructions: |
+    ## Supplementary instructions for the Tester Agent
+    - Check logs in core-api/logs/ before asserting
+    - If a UI test fails, take a screenshot and attach it to the bug report
+    (Edit this section to match your needs)
+  customSkills:
+    - name: "log-analysis"
+      path: ".opencode/skills/log-analysis/SKILL.md"
+      description: "Skill for analyzing logs to debug test failures"
+  customTools: []
+
+user:
+  allowMoveFromPendingOnly: true
+  requireVersioningForActive: true
+
+notification:
+  enabled: true
+  channels:
+    - type: "console"
+      enabled: true
+    - type: "file"
+      enabled: true
+      path: ".tasks/notifications.log"
+  events:
+    taskBlocked: true
+    taskTestFailed: true
+    taskCompleted: true
+    staleLockReleased: true
+    versionChanged: true
