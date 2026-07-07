@@ -4,6 +4,23 @@ import { TaskState } from './types';
 
 const STATE_DIRS: TaskState[] = ['defined', 'pending', 'processing', 'testing', 'review', 'done'];
 
+export type Actor = 'executor' | 'tester' | 'user';
+
+export const VALID_TRANSITIONS: Record<TaskState, { to: TaskState; actor: Actor }[]> = {
+  defined:    [{ to: 'pending', actor: 'user' }],
+  pending:    [{ to: 'processing', actor: 'executor' }, { to: 'processing', actor: 'user' },
+               { to: 'testing', actor: 'user' }, { to: 'review', actor: 'user' }, { to: 'done', actor: 'user' }],
+  processing: [{ to: 'testing', actor: 'executor' }, { to: 'pending', actor: 'executor' }],
+  testing:    [{ to: 'review', actor: 'tester' }, { to: 'processing', actor: 'tester' }],
+  review:     [{ to: 'done', actor: 'user' }, { to: 'pending', actor: 'user' }],
+  done:       [],
+};
+
+export function validateTransition(from: TaskState, to: TaskState, actor: Actor): boolean {
+  const allowed = VALID_TRANSITIONS[from] || [];
+  return allowed.some(t => t.to === to && t.actor === actor);
+}
+
 export function getStateDir(taskDir: string, state: TaskState): string {
   return path.join(taskDir, state);
 }
@@ -22,6 +39,14 @@ export function ensureStateDirs(taskDir: string): void {
   const runsDir = path.join(taskDir, 'runs');
   if (!fs.existsSync(runsDir)) {
     fs.mkdirSync(runsDir, { recursive: true });
+  }
+  const sessionsDir = path.join(runsDir, 'sessions');
+  if (!fs.existsSync(sessionsDir)) {
+    fs.mkdirSync(sessionsDir, { recursive: true });
+  }
+  const tasksLogDir = path.join(runsDir, 'tasks');
+  if (!fs.existsSync(tasksLogDir)) {
+    fs.mkdirSync(tasksLogDir, { recursive: true });
   }
 }
 

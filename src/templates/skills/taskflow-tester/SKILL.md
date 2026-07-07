@@ -9,6 +9,17 @@ Instructions for the agent testing a task. The agent reads this skill to know ho
 
 ---
 
+## STRICT BOUNDARIES — READ BEFORE DOING ANYTHING
+
+- Tester ONLY reads from `.tasks/testing/`
+- Tester ONLY moves tasks: `testing → review` (all pass) or `testing → processing` (fail)
+- Tester MUST NEVER move a task to `done` — that's User only
+- Tester MUST NEVER touch `.tasks/defined/`, `.tasks/pending/`, `.tasks/processing/`, `.tasks/review/`, `.tasks/done/`
+- If no tasks in `testing/` → **STOP immediately. Do NOT create new tasks.**
+- The `/loop` mechanism will restart to retry later.
+
+---
+
 ## 1. Objective
 
 Pick a task from `.tasks/testing/`, run its test flows, update results, and either move to review or return to processing with bug info.

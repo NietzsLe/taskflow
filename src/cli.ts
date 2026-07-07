@@ -4,9 +4,9 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { initTaskDir, installSkills } from './init';
 import { loadConfig } from './core/config';
-import { listTasks, getTaskState, getTaskFilePath, moveTask, getNextSeq, getStateDir } from './core/state';
+import { listTasks, getTaskState, getTaskFilePath, moveTask, getNextSeq, getStateDir, validateTransition } from './core/state';
 import { readLock, releaseLock, getTaskLockPath, getInfraLockPath } from './core/lock';
-import { appendRunLog, readRunLog } from './core/runlog';
+import { appendRunLog, readTaskLog, readSessionLog, readAllSessionLogs, listSessionFiles } from './core/runlog';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { TaskYaml, TaskState } from './core/types';
 import { editTask } from './edit';
@@ -187,6 +187,10 @@ program
       console.error(`Invalid state '${state}'. Valid: ${VALID_STATES.join(', ')}`);
       process.exit(1);
     }
+    if (!validateTransition(currentState, state as TaskState, 'user')) {
+      console.error(`Invalid transition: ${currentState} → ${state} (actor: user). Check the state machine rules.`);
+      process.exit(1);
+    }
     if (moveTask(taskDir, id, state as TaskState)) {
       let taskVersion = 0;
       const filePath = getTaskFilePath(taskDir, id);
@@ -352,11 +356,11 @@ program
 
 program
   .command('runs')
-  .description('View run logs')
-  .option('--date <date>', 'Filter by date (YYYY-MM-DD)')
-  .option('--task <id>', 'Filter by task ID')
+  .description('View run logs organized by session or task')
+  .option('--task <id>', 'View run log for a specific task')
+  .option('--session <id>', 'View run log for a specific session')
   .option('--agent <type>', 'Filter by agent type (executor|tester|user|lock-releaser)')
-  .action((options: { date?: string; task?: string; agent?: string }) => {
+  .action((options: { task?: string; session?: string; agent?: string }) => {
     const taskDir = path.join(process.cwd(), '.tasks');
     const config = loadConfig(taskDir);
     if (!config.runLog.enabled) {
@@ -369,36 +373,50 @@ program
       process.exit(1);
     }
 
-    let date: Date | undefined;
-    if (options.date) {
-      date = new Date(options.date);
-      if (isNaN(date.getTime())) {
-        console.error(`Invalid date '${options.date}'. Use YYYY-MM-DD format.`);
-        process.exit(1);
-      }
-    }
-
-    let entries = readRunLog(taskDir, date);
-
     if (options.task) {
-      entries = entries.filter(e => e.taskId === options.task || e.taskId.startsWith(options.task!));
-    }
-    if (options.agent) {
-      entries = entries.filter(e => e.agentType === options.agent);
+      const content = readTaskLog(taskDir, options.task);
+      if (!content) {
+        console.log(`No run log found for task '${options.task}'.`);
+        return;
+      }
+      console.log(`=== Task: ${options.task} ===\n`);
+      console.log(content);
+      return;
     }
 
-    if (entries.length === 0) {
+    if (options.session) {
+      const content = readSessionLog(taskDir, options.session);
+      if (!content) {
+        console.log(`No run log found for session '${options.session}'.`);
+        return;
+      }
+      console.log(`=== Session: ${options.session} ===\n`);
+      console.log(content);
+      return;
+    }
+
+    const sessions = listSessionFiles(taskDir);
+    if (sessions.length === 0) {
       console.log('No run log entries found.');
       return;
     }
 
-    for (const entry of entries) {
-      console.log(`[${entry.timestamp}] ${entry.runId}`);
-      console.log(`  Agent: ${entry.agentType} | Task: ${entry.taskId} | Action: ${entry.action}`);
-      console.log(`  Result: ${entry.result} | Duration: ${entry.duration}s`);
-      if (entry.error) console.log(`  Error: ${entry.error}`);
-      console.log();
+    if (options.agent) {
+      const content = readAllSessionLogs(taskDir, options.agent);
+      if (!content) {
+        console.log(`No run log entries found for agent '${options.agent}'.`);
+        return;
+      }
+      console.log(`=== Agent: ${options.agent} ===\n`);
+      console.log(content);
+      return;
     }
+
+    console.log('Recent sessions:\n');
+    for (const s of sessions.slice(0, 10)) {
+      console.log(`  ${s.name} (modified: ${new Date(s.mtime).toISOString()})`);
+    }
+    console.log(`\nUse --session <id>, --task <id>, or --agent <type> to view details.`);
   });
 
 program

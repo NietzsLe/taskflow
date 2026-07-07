@@ -40,9 +40,15 @@ npx taskflow approve <task-id>
 ├── locks/                       # Mutex lock files
 │   ├── task-<id>.lock
 │   └── infra.lock
-└── runs/                        # Run log — every agent action recorded
-    ├── 2026-07-07.yaml
-    └── releaser-log.md
+└── runs/                        # Run log — organized by session and task
+    ├── sessions/                 # One .md file per agent session
+    │   ├── abc-123.md
+    │   └── def-456.md
+    ├── tasks/                    # One .md file per task (full history)
+    │   ├── login-flow_001.md
+    │   └── filter-tx_002.md
+    ├── .seq                      # Global run counter
+    └── releaser-log.md           # Lock-releaser log
 ```
 
 ### File naming convention
@@ -283,7 +289,7 @@ Custom instructions/skills/tools do **not** conflict with the framework. The fra
 | `npx taskflow reject <id>` | Move task from `review/` back to `pending/` |
 | `npx taskflow unlock [id]` | Force release a lock (without args: infra lock) |
 | `npx taskflow unlock --all` | Release all locks |
-| `npx taskflow runs` | View run logs (`--date`, `--task`, `--agent` filters) |
+| `npx taskflow runs` | View run logs (`--task <id>`, `--session <id>`, `--agent <type>`) |
 | `npx taskflow setup-custom <agent>` | Show instructions for configuring custom instructions (executor or tester) |
 
 ---
@@ -303,24 +309,40 @@ Agents periodically check the task version. If it changes while they are working
 
 ## Run Log
 
-Every agent action is recorded in `.tasks/runs/YYYY-MM-DD.yaml`.
+Every agent action is recorded in two places:
 
-```yaml
----
-runId: "run_20260707_001"
-timestamp: "2026-07-07T10:00:00Z"
-agentType: "executor"
-sessionId: "a1b2c3d4"
-taskId: "login-flow_001"
-taskVersion: 2
-taskState: "pending"
-action: "pickup"
-result: "success"
-duration: 300
-details: "Implemented login form with NextAuth.js..."
+- `.tasks/runs/sessions/<sessionId>.md` — all actions by a specific agent session
+- `.tasks/runs/tasks/<taskId>.md` — full history of a specific task across sessions
+
+Entry format (markdown):
+
+```markdown
+### 2026-07-07T10:00:00Z — pickup
+- **Run ID:** run_001
+- **Agent:** executor
+- **Session:** abc-123
+- **Task:** login-flow_001 (v2, pending)
+- **Result:** success
+- **Duration:** 300s
+- **Details:** Implemented login form with NextAuth.js...
 ```
 
-View with: `npx taskflow runs --date 2026-07-07 --task login-flow`
+### Trimming
+
+| File type | Config | Default |
+|-----------|--------|---------|
+| Task logs | `maxTaskLogLines` | 500 lines |
+| Session logs | `maxSessionLogLines` | 500 lines |
+| Session files | `maxSessionFiles` | 50 files (oldest deleted) |
+| Releaser log | `maxReleaserLogLines` | 100 lines |
+
+View with:
+```bash
+npx taskflow runs                       # List recent sessions
+npx taskflow runs --task <id>           # View task history
+npx taskflow runs --session <id>        # View session history
+npx taskflow runs --agent executor      # Filter by agent type
+```
 
 ---
 

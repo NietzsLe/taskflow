@@ -39,7 +39,9 @@ infrastructure:
 
 runLog:
   enabled: true
-  filePerDay: true
+  maxTaskLogLines: 500
+  maxSessionLogLines: 500
+  maxSessionFiles: 50
   maxReleaserLogLines: 100
 
 executor:

@@ -9,6 +9,17 @@ Instructions for the agent executing a task. The agent reads this skill to know 
 
 ---
 
+## STRICT BOUNDARIES — READ BEFORE DOING ANYTHING
+
+- Executor ONLY reads from `.tasks/pending/`
+- Executor ONLY moves tasks: `pending → processing → testing`
+- Executor MUST NEVER touch `.tasks/defined/`, `.tasks/testing/`, `.tasks/review/`, `.tasks/done/`
+- Executor MUST NEVER move a task to `review` or `done` — that's Tester/User only
+- If no tasks in `pending/` → **STOP immediately. Do NOT create new tasks.**
+- The `/loop` mechanism will restart to retry later.
+
+---
+
 ## 1. Objective
 
 Pick a task from `.tasks/pending/`, implement according to the instructions, and move it to testing.

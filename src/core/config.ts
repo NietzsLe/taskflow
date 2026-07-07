@@ -34,7 +34,9 @@ export interface TaskFlowConfig {
   };
   runLog: {
     enabled: boolean;
-    filePerDay: boolean;
+    maxTaskLogLines: number;
+    maxSessionLogLines: number;
+    maxSessionFiles: number;
     maxReleaserLogLines: number;
   };
   executor: ExecutorConfig;
@@ -171,7 +173,9 @@ export function getDefaultConfig(): TaskFlowConfig {
     },
     runLog: {
       enabled: true,
-      filePerDay: true,
+      maxTaskLogLines: 500,
+      maxSessionLogLines: 500,
+      maxSessionFiles: 50,
       maxReleaserLogLines: 100,
     },
     executor: {
@@ -249,7 +253,13 @@ export function deepMergeConfig(defaults: TaskFlowConfig, parsed: Partial<TaskFl
       environments: { ...defaults.infrastructure.environments, ...parsed.infrastructure?.environments },
       seed: mergeArray(defaults.infrastructure.seed, parsed.infrastructure?.seed),
     },
-    runLog: { ...defaults.runLog, ...parsed.runLog },
+    runLog: {
+      enabled: parsed.runLog?.enabled ?? defaults.runLog.enabled,
+      maxTaskLogLines: parsed.runLog?.maxTaskLogLines ?? defaults.runLog.maxTaskLogLines,
+      maxSessionLogLines: parsed.runLog?.maxSessionLogLines ?? defaults.runLog.maxSessionLogLines,
+      maxSessionFiles: parsed.runLog?.maxSessionFiles ?? defaults.runLog.maxSessionFiles,
+      maxReleaserLogLines: parsed.runLog?.maxReleaserLogLines ?? defaults.runLog.maxReleaserLogLines,
+    },
     executor: mergeExecutorConfig(defaults.executor, parsed.executor),
     tester: mergeTesterConfig(defaults.tester, parsed.tester),
     user: {
