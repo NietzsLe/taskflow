@@ -33,7 +33,7 @@ export function initTaskDir(targetDir: string): void {
 }
 
 export function installSkills(targetDir: string): void {
-  const skillsDest = path.join(targetDir, '.opencode', 'skills');
+  const skillsDest = path.join(targetDir, '.agents', 'skills');
   const skillNames = [
     'taskflow-executor',
     'taskflow-tester',
@@ -61,6 +61,6 @@ export function installSkills(targetDir: string): void {
 
   console.log('Skills installed:');
   for (const name of skillNames) {
-    console.log(`  .opencode/skills/${name}/SKILL.md`);
+    console.log(`  .agents/skills/${name}/SKILL.md`);
   }
 }
