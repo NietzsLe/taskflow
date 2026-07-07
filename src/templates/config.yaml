@@ -53,7 +53,7 @@ executor:
     (Edit this section to match your needs)
   customSkills:
     - name: "requirement-analysis"
-      path: ".opencode/skills/requirement-analysis/SKILL.md"
+      path: ".agents/skills/requirement-analysis/SKILL.md"
       description: "Skill for analyzing requirements before implementation"
   customTools: []
 
@@ -68,7 +68,7 @@ tester:
     (Edit this section to match your needs)
   customSkills:
     - name: "log-analysis"
-      path: ".opencode/skills/log-analysis/SKILL.md"
+      path: ".agents/skills/log-analysis/SKILL.md"
       description: "Skill for analyzing logs to debug test failures"
   customTools: []
 

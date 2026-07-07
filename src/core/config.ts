@@ -210,25 +210,52 @@ export function getDefaultConfig(): TaskFlowConfig {
   };
 }
 
+function mergeArray<T>(def: T[], parsed: T[] | undefined | null): T[] {
+  return parsed ?? def;
+}
+
+function mergeExecutorConfig(def: ExecutorConfig, parsed: Partial<ExecutorConfig> | undefined): ExecutorConfig {
+  if (!parsed) return def;
+  return {
+    maxPickupAttempts: parsed.maxPickupAttempts ?? def.maxPickupAttempts,
+    pickupRetryDelaySeconds: parsed.pickupRetryDelaySeconds ?? def.pickupRetryDelaySeconds,
+    customInstructions: parsed.customInstructions ?? def.customInstructions,
+    customSkills: mergeArray(def.customSkills || [], parsed.customSkills),
+    customTools: mergeArray(def.customTools || [], parsed.customTools),
+  };
+}
+
+function mergeTesterConfig(def: TesterConfig, parsed: Partial<TesterConfig> | undefined): TesterConfig {
+  if (!parsed) return def;
+  return {
+    infraLockRequired: parsed.infraLockRequired ?? def.infraLockRequired,
+    warnNoBrowserMCP: parsed.warnNoBrowserMCP ?? def.warnNoBrowserMCP,
+    skipPassedFlows: parsed.skipPassedFlows ?? def.skipPassedFlows,
+    customInstructions: parsed.customInstructions ?? def.customInstructions,
+    customSkills: mergeArray(def.customSkills || [], parsed.customSkills),
+    customTools: mergeArray(def.customTools || [], parsed.customTools),
+  };
+}
+
 export function deepMergeConfig(defaults: TaskFlowConfig, parsed: Partial<TaskFlowConfig>): TaskFlowConfig {
   return {
     system: { ...defaults.system, ...parsed.system },
     heartbeat: { ...defaults.heartbeat, ...parsed.heartbeat },
     lock: { ...defaults.lock, ...parsed.lock },
     test: { ...defaults.test, ...parsed.test },
-    browserMCP: parsed.browserMCP ?? defaults.browserMCP,
+    browserMCP: mergeArray(defaults.browserMCP, parsed.browserMCP),
     infrastructure: {
       defaultEnvironment: parsed.infrastructure?.defaultEnvironment ?? defaults.infrastructure.defaultEnvironment,
       environments: { ...defaults.infrastructure.environments, ...parsed.infrastructure?.environments },
-      seed: parsed.infrastructure?.seed ?? defaults.infrastructure.seed,
+      seed: mergeArray(defaults.infrastructure.seed, parsed.infrastructure?.seed),
     },
     runLog: { ...defaults.runLog, ...parsed.runLog },
-    executor: { ...defaults.executor, ...parsed.executor },
-    tester: { ...defaults.tester, ...parsed.tester },
+    executor: mergeExecutorConfig(defaults.executor, parsed.executor),
+    tester: mergeTesterConfig(defaults.tester, parsed.tester),
     user: { ...defaults.user, ...parsed.user },
     notification: {
       enabled: parsed.notification?.enabled ?? defaults.notification.enabled,
-      channels: parsed.notification?.channels ?? defaults.notification.channels,
+      channels: mergeArray(defaults.notification.channels, parsed.notification?.channels),
       events: { ...defaults.notification.events, ...parsed.notification?.events },
     },
   };

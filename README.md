@@ -179,15 +179,15 @@ versions:
 
 ## Agent Skills
 
-TaskFlow installs 4 skills into `.opencode/skills/` during `init`. A 5th skill (`taskflow-init`) is pre-installed in the agent environment.
+TaskFlow installs 5 skills into `.agents/skills/` during `init`.
 
-| Skill | File | Purpose |
-|-------|------|---------|
-| `taskflow-init` | Pre-installed | Bootstrap the framework into a project |
-| `taskflow-executor` | `.opencode/skills/` | Pick pending tasks, implement, move to testing |
-| `taskflow-tester` | `.opencode/skills/` | Pick testing tasks, run flows, move to review or back |
-| `taskflow-lock-releaser` | `.opencode/skills/` | Loop to clean up stale locks |
-| `taskflow-user` | `.opencode/skills/` | Help the user interact with the system |
+| Skill | Location | Purpose |
+|-------|----------|---------|
+| `taskflow-init` | `.agents/skills/` | Bootstrap the framework into a project |
+| `taskflow-executor` | `.agents/skills/` | Pick pending tasks, implement, move to testing |
+| `taskflow-tester` | `.agents/skills/` | Pick testing tasks, run flows, move to review or back |
+| `taskflow-lock-releaser` | `.agents/skills/` | Run one check cycle to clean up stale locks |
+| `taskflow-user` | `.agents/skills/` | Help the user interact with the system |
 
 ### How to use
 
@@ -248,7 +248,7 @@ executor:
     - Run npm run lint -- --fix after implementation
   customSkills:
     - name: "requirement-analysis"
-      path: ".opencode/skills/requirement-analysis/SKILL.md"
+      path: ".agents/skills/requirement-analysis/SKILL.md"
       description: "Skill for analyzing requirements before implementation"
   customTools: []
 
@@ -259,7 +259,7 @@ tester:
     - Take screenshots on UI test failure
   customSkills:
     - name: "log-analysis"
-      path: ".opencode/skills/log-analysis/SKILL.md"
+      path: ".agents/skills/log-analysis/SKILL.md"
   customTools: []
 ```
 
@@ -271,16 +271,18 @@ Custom instructions/skills/tools do **not** conflict with the framework. The fra
 
 | Command | Description |
 |---------|-------------|
-| `npx taskflow init` | Scaffold `.tasks/` directory and install skills |
+| `npx taskflow init` | Scaffold `.tasks/` directory and install skills to `.agents/skills/` |
 | `npx taskflow add <name>` | Create a new task in `pending/` |
-| `npx taskflow list [state]` | List tasks by state |
+| `npx taskflow list [state]` | List tasks by state (pending, processing, testing, review, done) |
 | `npx taskflow status <id>` | Show detailed task info |
-| `npx taskflow edit <id>` | Edit a task (creates new version if active) |
+| `npx taskflow edit <id>` | Edit a task (creates new version if in processing/testing) |
+| `npx taskflow move <id> <state>` | Move a task from pending to another state |
 | `npx taskflow approve <id>` | Move task from `review/` to `done/` |
 | `npx taskflow reject <id>` | Move task from `review/` back to `pending/` |
-| `npx taskflow unlock [id]` | Force release a lock |
+| `npx taskflow unlock [id]` | Force release a lock (without args: infra lock) |
 | `npx taskflow unlock --all` | Release all locks |
-| `npx taskflow runs` | View run logs |
+| `npx taskflow runs` | View run logs (`--date`, `--task`, `--agent` filters) |
+| `npx taskflow setup-custom <agent>` | Show instructions for configuring custom instructions (executor or tester) |
 
 ---
 

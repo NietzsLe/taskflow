@@ -42,7 +42,7 @@ Read the following fields from `config.executor`:
   ```yaml
   customSkills:
     - name: "requirement-analysis"
-      path: ".opencode/skills/requirement-analysis/SKILL.md"
+      path: ".agents/skills/requirement-analysis/SKILL.md"
       description: "Skill for analyzing requirements before implementation"
   ```
 

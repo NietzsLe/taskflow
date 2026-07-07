@@ -141,7 +141,7 @@ Help the user set up custom instructions for executor or tester:
 2. Record the content, update `config.yaml`
 3. If the user wants custom skills:
    - Ask for skill name and description
-   - Create `.opencode/skills/<name>/SKILL.md` with a basic template
+   - Create `.agents/skills/<name>/SKILL.md` with a basic template
    - Update the path in config
 4. If the user wants custom tools:
    - Ask for tool name and type (MCP, script, etc.)

@@ -147,7 +147,9 @@ program
     console.log(`Version: ${task.version}`);
     console.log(`Created: ${task.createdAt}`);
     console.log(`Updated: ${task.updatedAt}`);
-    console.log(`Description: ${task.description?.slice(0, 100)}...`);
+    const desc = task.description || '';
+    const displayDesc = desc.length > 100 ? desc.slice(0, 100) + '...' : desc;
+    console.log(`Description: ${displayDesc}`);
     if (task.testResults) {
       console.log(`passRatio: ${task.testResults.passRatio}`);
     }
@@ -168,7 +170,7 @@ program
 
 program
   .command('move <id> <state>')
-  .description('Move a task from pending to another state')
+  .description('Move a task to another state (from pending only by default)')
   .action((id: string, state: string) => {
     const taskDir = path.join(process.cwd(), '.tasks');
     const config = loadConfig(taskDir);
@@ -189,13 +191,22 @@ program
       process.exit(1);
     }
     if (moveTask(taskDir, id, state as TaskState)) {
+      let taskVersion = 0;
+      const filePath = getTaskFilePath(taskDir, id);
+      if (filePath) {
+        try {
+          const raw = fs.readFileSync(filePath, 'utf-8');
+          const task = parseYaml(raw) as TaskYaml;
+          taskVersion = task.version || 0;
+        } catch {}
+      }
       appendRunLog(taskDir, {
         timestamp: new Date().toISOString(),
         agentType: 'user',
         sessionId: 'cli',
         agentName: null,
         taskId: id,
-        taskVersion: 0,
+        taskVersion,
         taskState: currentState,
         action: 'move',
         description: `User moved task '${id}' from ${currentState} to ${state}`,
@@ -373,7 +384,7 @@ program
     let entries = readRunLog(taskDir, date);
 
     if (options.task) {
-      entries = entries.filter(e => e.taskId.includes(options.task!));
+      entries = entries.filter(e => e.taskId === options.task || e.taskId.startsWith(options.task!));
     }
     if (options.agent) {
       entries = entries.filter(e => e.agentType === options.agent);
@@ -415,7 +426,7 @@ program
     console.log(`      Reference docs/design before writing code`);
     console.log(`    customSkills:`);
     console.log(`      - name: "my-skill"`);
-    console.log(`        path: ".opencode/skills/my-skill/SKILL.md"`);
+     console.log(`        path: ".agents/skills/my-skill/SKILL.md"`);
     console.log(`    customTools: []`);
   });
 

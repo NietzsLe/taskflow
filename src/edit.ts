@@ -98,8 +98,11 @@ export function editTask(
   });
 
   if (currentState === 'processing' || currentState === 'testing') {
-    moveTask(taskDir, taskId, 'pending');
-    console.log(`Task '${taskId}' updated to v${task.version} and moved to pending.`);
+    if (!moveTask(taskDir, taskId, 'pending')) {
+      console.error(`Task '${taskId}' updated to v${task.version} but failed to move to pending. Manual intervention needed.`);
+    } else {
+      console.log(`Task '${taskId}' updated to v${task.version} and moved to pending.`);
+    }
   } else {
     console.log(`Task '${taskId}' updated to v${task.version}.`);
   }

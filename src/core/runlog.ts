@@ -73,6 +73,7 @@ export function appendRunLog(
 
 export function appendReleaserLog(taskDir: string, message: string): void {
   const config = loadConfig(taskDir);
+  if (!config.runLog.enabled) return;
   const maxLines = config.runLog.maxReleaserLogLines;
 
   const logPath = getReleaserLogPath(taskDir);

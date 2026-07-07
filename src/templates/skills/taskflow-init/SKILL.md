@@ -50,10 +50,11 @@ Created:
   .tasks/runs/releaser-log.md
 
 Skills installed:
-  .opencode/skills/taskflow-executor/SKILL.md
-  .opencode/skills/taskflow-tester/SKILL.md
-  .opencode/skills/taskflow-lock-releaser/SKILL.md
-  .opencode/skills/taskflow-user/SKILL.md
+  .agents/skills/taskflow-executor/SKILL.md
+  .agents/skills/taskflow-tester/SKILL.md
+  .agents/skills/taskflow-lock-releaser/SKILL.md
+  .agents/skills/taskflow-user/SKILL.md
+  .agents/skills/taskflow-init/SKILL.md
 ```
 
 ### Step 3: Configure system
@@ -106,14 +107,14 @@ Ask the user:
 1. **"Would you like to add custom instructions for the executor agent?"**
    - Example: "Use the brainstorming skill before implementing", "Reference docs/design before writing code", "Run lint after implementation"
    - The agent will write to `executor.customInstructions` in config
-   - If the user wants custom skills, help create `.opencode/skills/<name>/SKILL.md`
+   - If the user wants custom skills, help create `.agents/skills/<name>/SKILL.md`
 
 2. **"Would you like to add custom instructions for the tester agent?"**
    - Example: "Check logs in core-api/logs/ before asserting", "Take screenshots when UI tests fail"
    - The agent will write to `tester.customInstructions` in config
 
 3. **"Would you like to add custom skills?"**
-   - The agent helps create skill files at `.opencode/skills/<name>/SKILL.md`
+    - The agent helps create skill files at `.agents/skills/<name>/SKILL.md`
    - Or the user creates them, and the agent updates the path in config
 
 4. **"Would you like to add custom tools?"**
@@ -143,5 +144,5 @@ npx taskflow list
 | Situation | Action |
 |-----------|--------|
 | Project already has `.tasks/` | Ask if user wants to re-init. If yes, backup the old `.tasks/`. |
-| No `.opencode/` directory | Create `.opencode/skills/` before copying skills |
+| No `.agents/` directory | Create `.agents/skills/` before copying skills |
 | User cannot install globally | Use `npx taskflow` instead of `npm install -g` |
