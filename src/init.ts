@@ -21,6 +21,7 @@ export function initTaskDir(targetDir: string): void {
   }
 
   console.log('Created:');
+  console.log('  .tasks/defined/');
   console.log('  .tasks/pending/');
   console.log('  .tasks/processing/');
   console.log('  .tasks/testing/');

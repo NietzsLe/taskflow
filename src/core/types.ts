@@ -65,7 +65,7 @@ export interface RunLogEntry {
   details: string | null;
 }
 
-export type TaskState = 'pending' | 'processing' | 'testing' | 'review' | 'done';
+export type TaskState = 'defined' | 'pending' | 'processing' | 'testing' | 'review' | 'done';
 
 export function generateSessionId(): string {
   return uuidv4();

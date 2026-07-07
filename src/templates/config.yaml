@@ -73,7 +73,7 @@ tester:
   customTools: []
 
 user:
-  allowMoveFromPendingOnly: true
+  allowMoveFromStates: ["defined", "pending"]
   requireVersioningForActive: true
 
 notification:

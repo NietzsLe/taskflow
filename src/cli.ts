@@ -11,7 +11,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { TaskYaml, TaskState } from './core/types';
 import { editTask } from './edit';
 
-const VALID_STATES: TaskState[] = ['pending', 'processing', 'testing', 'review', 'done'];
+const VALID_STATES: TaskState[] = ['defined', 'pending', 'processing', 'testing', 'review', 'done'];
 const VALID_AGENTS = ['executor', 'tester', 'user', 'lock-releaser'];
 
 const program = new Command();
@@ -59,7 +59,7 @@ program
       },
     };
 
-    const destPath = path.join(taskDir, 'pending', filename);
+    const destPath = path.join(taskDir, 'defined', filename);
     fs.writeFileSync(destPath, stringifyYaml(task), 'utf-8');
 
     appendRunLog(taskDir, {
@@ -69,7 +69,7 @@ program
       agentName: null,
       taskId: id,
       taskVersion: 1,
-      taskState: 'pending',
+      taskState: 'defined',
       action: 'add',
       description: `User created task '${id}'`,
       result: 'success',
@@ -78,7 +78,7 @@ program
       details: null,
     });
 
-    console.log(`Task created: .tasks/pending/${filename}`);
+    console.log(`Task created: .tasks/defined/${filename}`);
   });
 
 program
@@ -170,24 +170,21 @@ program
 
 program
   .command('move <id> <state>')
-  .description('Move a task to another state (from pending only by default)')
+  .description('Move a task to another state (from defined or pending only by default)')
   .action((id: string, state: string) => {
     const taskDir = path.join(process.cwd(), '.tasks');
     const config = loadConfig(taskDir);
-    if (config.user.allowMoveFromPendingOnly) {
-      const currentState = getTaskState(taskDir, id);
-      if (currentState !== 'pending') {
-        console.error(`Task '${id}' is not in pending (current: ${currentState}). Move is only allowed from pending.`);
-        process.exit(1);
-      }
-    }
-    if (!VALID_STATES.includes(state as TaskState)) {
-      console.error(`Invalid state '${state}'. Valid: ${VALID_STATES.join(', ')}`);
-      process.exit(1);
-    }
     const currentState = getTaskState(taskDir, id);
     if (!currentState) {
       console.error(`Task '${id}' not found.`);
+      process.exit(1);
+    }
+    if (config.user.allowMoveFromStates.length > 0 && !config.user.allowMoveFromStates.includes(currentState)) {
+      console.error(`Task '${id}' is in '${currentState}'. Move is only allowed from: ${config.user.allowMoveFromStates.join(', ')}.`);
+      process.exit(1);
+    }
+    if (!VALID_STATES.includes(state as TaskState)) {
+      console.error(`Invalid state '${state}'. Valid: ${VALID_STATES.join(', ')}`);
       process.exit(1);
     }
     if (moveTask(taskDir, id, state as TaskState)) {

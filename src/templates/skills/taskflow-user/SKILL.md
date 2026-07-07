@@ -16,22 +16,23 @@ This section provides complete framework context so the agent can advise the use
 ### 1.1 State Machine
 
 ```
-pending ──(executor pickup)──► processing ──(executor done)──► testing
-  ▲                                 │                           │
-  │                          (version change)            (all pass?)
-  │                                 ▼                           │
-  │                             pending                    ┌────┴────┐
-  │                                 ▲                      ▼         ▼
-  │                          (user reject)              review    processing
-  │                                 ▲                      │    (with bugs)
-  │                                 │                      ▼
-  └─────────────────────────────────┴─────────────────── done
+defined ──(user move)──► pending ──(executor pickup)──► processing ──(executor done)──► testing
+                              ▲                                 │                           │
+                              │                          (version change)          (all pass?)
+                              │                                 ▼                           │
+                              │                             pending                    ┌────┴────┐
+                              │                                 ▲                      ▼         ▼
+                              │                          (user reject)              review    processing
+                              │                                 ▲                      │    (with bugs)
+                              │                                 │                      ▼
+                              └─────────────────────────────────┴─────────────────── done
 ```
 
 ### 1.2 Transition Rules
 
 | From | To | Performed by | Condition |
 |------|----|-------------|-----------|
+| defined | pending | User | Move task to make it available for executor |
 | pending | processing | Executor | Pick up task, acquire lock |
 | processing | testing | Executor | Code done, self-triage |
 | processing | pending | Executor | Version change → release lock |
@@ -40,6 +41,7 @@ pending ──(executor pickup)──► processing ──(executor done)──�
 | review | done | User | Approve |
 | review | pending | User | Reject |
 | pending | pending | User | Edit task → version++ |
+| defined | defined | User | Edit task → version++ |
 
 ### 1.3 Lock Mechanism
 
@@ -88,19 +90,21 @@ pending ──(executor pickup)──► processing ──(executor done)──�
 
 ### 2.1 `list [state]` — View task list
 
-Read `.tasks/<state>/` and list all `.yaml` files.
+Read `.tasks/<state>/` and list all `.yaml` files. Valid states: `defined`, `pending`, `processing`, `testing`, `review`, `done`.
 
 Display: ID, Name, Version, UpdatedAt, passRatio (if testing).
 
 ### 2.2 `add <name>` — Create a new task
 
 1. Brainstorm with the user to clarify: description, implementationNotes, testFlows
-2. Create YAML file in `.tasks/pending/` with format `YYYY-MM-DD_<slug>_<seq>.yaml`
-3. Write run log action `add`
+2. Create YAML file in `.tasks/defined/` with format `YYYY-MM-DD_<slug>_<seq>.yaml`
+3. Task is created in `defined` state — NOT available for executor pickup
+4. User must `move <id> pending` to make it available for executor
+5. Write run log action `add`
 
 ### 2.3 `edit <id>` — Edit a task
 
-**If task is in pending:**
+**If task is in defined or pending:**
 1. Brainstorm with the user about changes
 2. Update task YAML, bump `version++`
 3. Reset `testResults` if `testFlows` exist
@@ -130,8 +134,9 @@ Display: ID, Name, Version, UpdatedAt, passRatio (if testing).
 ### 2.6 `move <id> <state>` — Manually move a task
 
 **Rules:**
-- Only allowed from `pending` (if `config.user.allowMoveFromPendingOnly == true`)
+- Only allowed from states in `config.user.allowMoveFromStates` (default: `defined`, `pending`)
 - Other states must go through proper transitions
+- Common use: `move <id> pending` to make a `defined` task available for executor pickup
 
 ### 2.7 `setup-custom <executor|tester>` — Configure custom instructions
 

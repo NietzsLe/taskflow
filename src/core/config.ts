@@ -40,7 +40,7 @@ export interface TaskFlowConfig {
   executor: ExecutorConfig;
   tester: TesterConfig;
   user: {
-    allowMoveFromPendingOnly: boolean;
+    allowMoveFromStates: string[];
     requireVersioningForActive: boolean;
   };
   notification: {
@@ -190,7 +190,7 @@ export function getDefaultConfig(): TaskFlowConfig {
       customTools: [],
     },
     user: {
-      allowMoveFromPendingOnly: true,
+      allowMoveFromStates: ['defined', 'pending'],
       requireVersioningForActive: true,
     },
     notification: {
@@ -252,7 +252,10 @@ export function deepMergeConfig(defaults: TaskFlowConfig, parsed: Partial<TaskFl
     runLog: { ...defaults.runLog, ...parsed.runLog },
     executor: mergeExecutorConfig(defaults.executor, parsed.executor),
     tester: mergeTesterConfig(defaults.tester, parsed.tester),
-    user: { ...defaults.user, ...parsed.user },
+    user: {
+      allowMoveFromStates: parsed.user?.allowMoveFromStates ?? defaults.user.allowMoveFromStates,
+      requireVersioningForActive: parsed.user?.requireVersioningForActive ?? defaults.user.requireVersioningForActive,
+    },
     notification: {
       enabled: parsed.notification?.enabled ?? defaults.notification.enabled,
       channels: mergeArray(defaults.notification.channels, parsed.notification?.channels),

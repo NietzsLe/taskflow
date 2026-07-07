@@ -39,6 +39,7 @@ npx taskflow init
 **Expected output:**
 ```
 Created:
+  .tasks/defined/
   .tasks/pending/
   .tasks/processing/
   .tasks/testing/

@@ -31,7 +31,8 @@ npx taskflow approve <task-id>
 ```
 .tasks/                          # Created by `taskflow init`
 ├── config.yaml                  # System configuration
-├── pending/                     # Tasks waiting to be picked up
+├── defined/                     # Tasks defined but not yet ready for executor
+├── pending/                     # Tasks ready to be picked up by executor
 ├── processing/                  # Tasks being implemented
 ├── testing/                     # Tasks being tested
 ├── review/                      # Tasks awaiting human approval
@@ -57,20 +58,21 @@ Example: `2026-07-07_login-flow_001.yaml`
 ## State Machine
 
 ```
-pending ──(executor pickup)──► processing ──(executor done)──► testing
-  ▲                                 │                           │
-  │                          (version change)            (all pass?)
-  │                                 ▼                           │
-  │                             pending                    ┌────┴────┐
-  │                                 ▲                      ▼         ▼
-  │                          (user reject)              review    processing
-  │                                 ▲                      │    (with bugs)
-  │                                 │                      ▼
-  └─────────────────────────────────┴─────────────────── done
+defined ──(user move)──► pending ──(executor pickup)──► processing ──(executor done)──► testing
+                              ▲                                 │                           │
+                              │                          (version change)          (all pass?)
+                              │                                 ▼                           │
+                              │                             pending                    ┌────┴────┐
+                              │                                 ▲                      ▼         ▼
+                              │                          (user reject)              review    processing
+                              │                                 ▲                      │    (with bugs)
+                              │                                 │                      ▼
+                              └─────────────────────────────────┴─────────────────── done
 ```
 
 | From | To | By | Condition |
 |------|----|----|-----------|
+| defined | pending | User | Move task to make it available for executor |
 | pending | processing | Executor | Pick up task, acquire lock |
 | processing | testing | Executor | Implementation done |
 | processing | pending | Executor | Version change detected |
@@ -272,11 +274,11 @@ Custom instructions/skills/tools do **not** conflict with the framework. The fra
 | Command | Description |
 |---------|-------------|
 | `npx taskflow init` | Scaffold `.tasks/` directory and install skills to `.agents/skills/` |
-| `npx taskflow add <name>` | Create a new task in `pending/` |
-| `npx taskflow list [state]` | List tasks by state (pending, processing, testing, review, done) |
+| `npx taskflow add <name>` | Create a new task in `defined/` |
+| `npx taskflow list [state]` | List tasks by state (defined, pending, processing, testing, review, done) |
 | `npx taskflow status <id>` | Show detailed task info |
 | `npx taskflow edit <id>` | Edit a task (creates new version if in processing/testing) |
-| `npx taskflow move <id> <state>` | Move a task from pending to another state |
+| `npx taskflow move <id> <state>` | Move a task (from defined or pending to another state) |
 | `npx taskflow approve <id>` | Move task from `review/` to `done/` |
 | `npx taskflow reject <id>` | Move task from `review/` back to `pending/` |
 | `npx taskflow unlock [id]` | Force release a lock (without args: infra lock) |

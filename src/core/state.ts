@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { TaskState } from './types';
 
-const STATE_DIRS: TaskState[] = ['pending', 'processing', 'testing', 'review', 'done'];
+const STATE_DIRS: TaskState[] = ['defined', 'pending', 'processing', 'testing', 'review', 'done'];
 
 export function getStateDir(taskDir: string, state: TaskState): string {
   return path.join(taskDir, state);
@@ -81,9 +81,9 @@ export function listTasks(taskDir: string, state?: TaskState): { id: string; sta
 }
 
 export function getNextSeq(taskDir: string, datePrefix: string): number {
-  const pendingDir = getStateDir(taskDir, 'pending');
-  if (!fs.existsSync(pendingDir)) return 1;
-  const files = fs.readdirSync(pendingDir).filter(f => f.startsWith(datePrefix));
+  const definedDir = getStateDir(taskDir, 'defined');
+  if (!fs.existsSync(definedDir)) return 1;
+  const files = fs.readdirSync(definedDir).filter(f => f.startsWith(datePrefix));
   if (files.length === 0) return 1;
   const seqs = files.map(f => {
     const match = f.match(/_(\d+)\.yaml$/);
