@@ -73,7 +73,31 @@ defined ──(user move)──► pending ──(executor pickup)──► proc
 - These do not conflict with the framework — the framework orchestrates, custom instructions guide agent behavior
 - Users can also add custom skills (`customSkills`) and custom tools (`customTools`)
 
-### 1.7 Available Skills
+### 1.7 Pending Questions
+
+When an agent (executor or tester) encounters a situation that needs user input, it writes a `pendingQuestion` to the task YAML:
+
+```yaml
+pendingQuestions:
+  - id: "q1"
+    askedAt: "2026-07-07T10:00:00Z"
+    askedBy: "executor"
+    question: "MAP4D_API_KEY is not set. Should I add a placeholder?"
+    answered: false
+```
+
+The user can answer these via the `answer-questions` command. Agent sessions running executor/tester skills will also attempt to answer pending questions from previous runs before picking up new tasks.
+
+### 1.8 Run Log Summaries
+
+Every run log entry includes a `summary` field — a natural language description of what the agent actually did. This helps humans understand what happened without reading code or YAML. View summaries with:
+
+```bash
+npx taskflow runs --task <id>      # Task history with summaries
+npx taskflow runs --session <id>   # Session history with summaries
+```
+
+### 1.9 Available Skills
 
 | Skill | Role |
 |-------|------|
@@ -138,9 +162,27 @@ Display: ID, Name, Version, UpdatedAt, passRatio (if testing).
 - Other states must go through proper transitions
 - Common use: `move <id> pending` to make a `defined` task available for executor pickup
 
-### 2.7 `setup-custom <executor|tester>` — Configure custom instructions
+### 2.7 `answer-questions [id]` — Answer pending questions
 
-Help the user set up custom instructions for executor or tester:
+Check all tasks (or a specific task by ID) for unanswered `pendingQuestions`:
+
+1. Read the task YAML, find `pendingQuestions` where `answered: false`
+2. Present each question to the user
+3. Record the user's answer:
+   ```yaml
+   pendingQuestions:
+     - id: "q1"
+       askedAt: "2026-07-07T10:00:00Z"
+       askedBy: "executor"
+       question: "MAP4D_API_KEY is not set..."
+       answered: true
+       answer: "Add placeholder key for now."
+       answeredAt: "2026-07-07T11:00:00Z"
+   ```
+4. Write run log action `answer-question` with summary of what was answered
+5. If the task is in `pending/` or `processing/`, the next executor session will pick it up
+
+### 2.8 `setup-custom <executor|tester>` — Configure custom instructions
 
 1. Ask: "What instructions would you like to add for [executor|tester]?"
 2. Record the content, update `config.yaml`

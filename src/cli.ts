@@ -234,13 +234,22 @@ program
       process.exit(1);
     }
     if (moveTask(taskDir, id, 'done')) {
+      let taskVersion = 0;
+      const filePath = getTaskFilePath(taskDir, id);
+      if (filePath) {
+        try {
+          const raw = fs.readFileSync(filePath, 'utf-8');
+          const task = parseYaml(raw) as TaskYaml;
+          taskVersion = task.version || 0;
+        } catch {}
+      }
       appendRunLog(taskDir, {
         timestamp: new Date().toISOString(),
         agentType: 'user',
         sessionId: 'cli',
         agentName: null,
         taskId: id,
-        taskVersion: 0,
+        taskVersion,
         taskState: 'review',
         action: 'approve',
         description: `User approved task '${id}'`,
@@ -267,13 +276,22 @@ program
       process.exit(1);
     }
     if (moveTask(taskDir, id, 'pending')) {
+      let taskVersion = 0;
+      const filePath = getTaskFilePath(taskDir, id);
+      if (filePath) {
+        try {
+          const raw = fs.readFileSync(filePath, 'utf-8');
+          const task = parseYaml(raw) as TaskYaml;
+          taskVersion = task.version || 0;
+        } catch {}
+      }
       appendRunLog(taskDir, {
         timestamp: new Date().toISOString(),
         agentType: 'user',
         sessionId: 'cli',
         agentName: null,
         taskId: id,
-        taskVersion: 0,
+        taskVersion,
         taskState: 'review',
         action: 'reject',
         description: `User rejected task '${id}'`,
@@ -443,6 +461,43 @@ program
     console.log(`      - name: "my-skill"`);
      console.log(`        path: ".agents/skills/my-skill/SKILL.md"`);
     console.log(`    customTools: []`);
+  });
+
+program
+  .command('answer-questions')
+  .description('Check tasks for unanswered pending questions')
+  .argument('[id]', 'Specific task ID to check')
+  .action((id?: string) => {
+    const taskDir = path.join(process.cwd(), '.tasks');
+    const { listTasks } = require('./core/state');
+    const tasks = id
+      ? listTasks(taskDir).filter((t: { id: string }) => t.id === id)
+      : listTasks(taskDir);
+
+    let found = false;
+    for (const t of tasks) {
+      const filePath = getTaskFilePath(taskDir, t.id);
+      if (!filePath) continue;
+      try {
+        const raw = fs.readFileSync(filePath, 'utf-8');
+        const task = parseYaml(raw) as TaskYaml;
+        if (task.pendingQuestions && task.pendingQuestions.length > 0) {
+          const unanswered = task.pendingQuestions.filter(q => !q.answered);
+          if (unanswered.length > 0) {
+            found = true;
+            console.log(`\n=== ${t.id} (${t.state}) ===`);
+            for (const q of unanswered) {
+              console.log(`  [${q.id}] Asked by ${q.askedBy} at ${q.askedAt}`);
+              console.log(`  Question: ${q.question}`);
+              console.log();
+            }
+          }
+        }
+      } catch {}
+    }
+    if (!found) {
+      console.log('No unanswered pending questions found.');
+    }
   });
 
 program.parse(process.argv);

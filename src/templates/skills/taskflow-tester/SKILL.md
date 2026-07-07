@@ -20,6 +20,44 @@ Instructions for the agent testing a task. The agent reads this skill to know ho
 
 ---
 
+## PENDING QUESTIONS — CHECK BEFORE STARTING
+
+Before picking up a new task, check ALL testing tasks for `pendingQuestions`:
+
+1. Read all `.yaml` files in `.tasks/testing/`
+2. For each task, check the `pendingQuestions` array
+3. If any question has `answered: false`:
+   - Do NOT pick that task yet
+   - Instead, try to answer the question based on context (test results, bug reports, logs)
+   - If you can answer → write the answer into `pendingQuestions[].answer`, set `answered: true`, `answeredAt: <now>`
+   - Write a run log entry with summary: "Answered pending question on task <id>: <question>"
+   - If you cannot answer → leave it for the user, move on to another task
+4. Only pick up tasks with no unanswered pending questions
+
+---
+
+## SUMMARY — WRITE AFTER EVERY ACTION
+
+Every run log entry MUST include a `summary` field — a natural language description of what the agent actually did.
+
+**Examples of good summaries:**
+- "Started testing task 'login-flow'. Read 2 test flows. Checking infrastructure: postgres on port 5434 is running, redis on port 6378 is running, core-api on port 3001 is responding."
+- "Test flow 'Happy path' PASSED. Navigated to /login, filled credentials, clicked login, redirected to /dashboard successfully. User name displayed correctly."
+- "Test flow 'Wrong password' FAILED. Clicked login with wrong password but no error message appeared. The API returned 200 instead of 401. Bug recorded in task YAML."
+- "All 2 test flows passed (passRatio: 1.0). Moved task to review for user approval."
+
+**When a test fails and you need user input, add a pending question:**
+```yaml
+pendingQuestions:
+  - id: "q1"
+    askedAt: "<now>"
+    askedBy: "tester"
+    question: "Test flow 'Wrong password' fails because the API returns 200 for wrong credentials. Is this expected behavior or a bug?"
+    answered: false
+```
+
+---
+
 ## 1. Objective
 
 Pick a task from `.tasks/testing/`, run its test flows, update results, and either move to review or return to processing with bug info.
@@ -223,10 +261,10 @@ The task goes back to processing with bug info so the executor knows what to fix
 
 ## 5. Run log entries
 
-After each action, write an entry to `.tasks/runs/YYYY-MM-DD.yaml`:
-- `test-start` — when locks are acquired
-- `test-flow-pass` — each flow that passes
-- `test-flow-fail` — each flow that fails (with bug description)
-- `test-done` — when moved to review
-- `test-fail` — when moved back to processing
-- `test-stale` — when version change detected
+After each action, write an entry to `.tasks/runs/sessions/<sessionId>.md` and `.tasks/runs/tasks/<taskId>.md`:
+- `test-start` — when locks are acquired. Summary: describe what task you're testing and what flows you'll run.
+- `test-flow-pass` — each flow that passes. Summary: describe the steps executed and what was verified.
+- `test-flow-fail` — each flow that fails. Summary: describe what failed, at which step, and the expected vs actual behavior. Also add a `pendingQuestion` if you need user clarification.
+- `test-done` — when moved to review. Summary: describe overall test results, pass ratio, and what was verified.
+- `test-fail` — when moved back to processing. Summary: describe which flows failed and what bugs were recorded.
+- `test-stale` — when version change detected. Summary: describe that version changed and you're releasing locks.

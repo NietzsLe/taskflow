@@ -20,6 +20,38 @@ Instructions for the agent executing a task. The agent reads this skill to know 
 
 ---
 
+## PENDING QUESTIONS — CHECK BEFORE STARTING
+
+Before picking up a new task, check ALL pending tasks for `pendingQuestions`:
+
+1. Read all `.yaml` files in `.tasks/pending/` and `.tasks/processing/`
+2. For each task, check the `pendingQuestions` array
+3. If any question has `answered: false`:
+   - Do NOT pick that task yet
+   - Instead, try to answer the question based on context (codebase, previous runs, specs)
+   - If you can answer → write the answer into `pendingQuestions[].answer`, set `answered: true`, `answeredAt: <now>`
+   - Write a run log entry with summary: "Answered pending question on task <id>: <question>"
+   - If you cannot answer → leave it for the user, move on to another task
+4. Only pick up tasks with no unanswered pending questions
+
+---
+
+## SUMMARY — WRITE AFTER EVERY ACTION
+
+Every run log entry MUST include a `summary` field — a natural language description of what the agent actually did. This is for humans to understand what happened in each run.
+
+**Examples of good summaries:**
+- "Picked up task 'login-flow' from pending. Read description and implementation notes. Started implementing NextAuth.js login form with email and password fields."
+- "Implemented login API endpoint POST /api/auth/login. Added JWT token generation and httpOnly cookie handling. Created dashboard route protection middleware."
+- "Implementation complete. Moved task to testing. Code changes: 3 files modified (auth.ts, login.tsx, middleware.ts). All lint checks pass."
+
+**Examples of bad summaries:**
+- "Task done" (too vague)
+- "Implemented feature" (no detail)
+- null or empty (mandatory)
+
+---
+
 ## 1. Objective
 
 Pick a task from `.tasks/pending/`, implement according to the instructions, and move it to testing.
@@ -149,9 +181,31 @@ If an issue cannot be resolved:
 
 ## 5. Run log entries
 
-After each action, write an entry to `.tasks/runs/YYYY-MM-DD.yaml`:
-- `pickup` — when lock is acquired
-- `implement-start` — when task moves to `processing`
-- `implement-done` — when moved to testing
-- `implement-blocked` — when blocked
-- `implement-stale` — when version change detected
+After each action, write an entry to `.tasks/runs/sessions/<sessionId>.md` and `.tasks/runs/tasks/<taskId>.md`:
+- `pickup` — when lock is acquired. Summary: describe what task you picked up and what you plan to do.
+- `implement-start` — when task moves to `processing`. Summary: describe what you're implementing.
+- `implement-done` — when moved to testing. Summary: describe what was implemented, files changed, and verification done.
+- `implement-blocked` — when blocked. Summary: describe the problem and what's needed. Also add a `pendingQuestion` to the task YAML so the next session or user can address it.
+- `implement-stale` — when version change detected. Summary: describe that version changed and you're releasing the lock.
+
+**When blocked, add a pending question to the task YAML:**
+```yaml
+pendingQuestions:
+  - id: "q1"
+    askedAt: "<now>"
+    askedBy: "executor"
+    question: "MAP4D_API_KEY is not set in .env. Should I add a placeholder or does the user have a key?"
+    answered: false
+```
+
+**When answering a pending question (from a previous run):**
+```yaml
+pendingQuestions:
+  - id: "q1"
+    askedAt: "2026-07-07T10:00:00Z"
+    askedBy: "executor"
+    question: "MAP4D_API_KEY is not set in .env..."
+    answered: true
+    answer: "Added placeholder key MAP4D_API_KEY=placeholder to .env. User should replace with real key."
+    answeredAt: "2026-07-07T10:30:00Z"
+```

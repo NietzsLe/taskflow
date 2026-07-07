@@ -64,8 +64,15 @@ function formatEntryMarkdown(entry: RunLogEntry): string {
   md += `- **Task:** ${entry.taskId} (v${entry.taskVersion}, ${entry.taskState})\n`;
   md += `- **Result:** ${entry.result}\n`;
   md += `- **Duration:** ${entry.duration}s\n`;
-  if (entry.error) md += `- **Error:** ${entry.error}\n`;
-  if (entry.details) md += `- **Details:** ${entry.details}\n`;
+  if (entry.summary) {
+    md += `\n**Summary:** ${entry.summary}\n`;
+  }
+  if (entry.error) {
+    md += `\n**Error:** ${entry.error}\n`;
+  }
+  if (entry.details) {
+    md += `\n**Details:**\n${entry.details}\n`;
+  }
   md += `\n`;
   return md;
 }

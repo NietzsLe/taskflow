@@ -290,6 +290,7 @@ Custom instructions/skills/tools do **not** conflict with the framework. The fra
 | `npx taskflow unlock [id]` | Force release a lock (without args: infra lock) |
 | `npx taskflow unlock --all` | Release all locks |
 | `npx taskflow runs` | View run logs (`--task <id>`, `--session <id>`, `--agent <type>`) |
+| `npx taskflow answer-questions [id]` | Check tasks for unanswered pending questions |
 | `npx taskflow setup-custom <agent>` | Show instructions for configuring custom instructions (executor or tester) |
 
 ---

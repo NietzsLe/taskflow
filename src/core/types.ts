@@ -13,6 +13,17 @@ export interface TaskYaml {
   versions?: Record<string, VersionSnapshot>;
   bugs?: Bug[];
   blockedReason?: string;
+  pendingQuestions?: PendingQuestion[];
+}
+
+export interface PendingQuestion {
+  id: string;
+  askedAt: string;
+  askedBy: string;
+  question: string;
+  answered: boolean;
+  answer?: string;
+  answeredAt?: string;
 }
 
 export interface TestFlow {
@@ -59,6 +70,7 @@ export interface RunLogEntry {
   taskState: string;
   action: string;
   description: string;
+  summary?: string;
   result: 'success' | 'failure' | 'stale' | 'skipped';
   duration: number;
   error: string | null;

@@ -51,7 +51,8 @@ The external `/loop` mechanism handles restarting every 60 seconds. This skill o
 
 ## 4. Logging
 
-Write to `.tasks/runs/releaser-log.md`:
+Write to `.tasks/runs/releaser-log.md` with a summary of what was done:
+
 ```markdown
 ## <timestamp>
 - Released stale lock: `<filename>`
@@ -59,4 +60,11 @@ Write to `.tasks/runs/releaser-log.md`:
   - Agent type: `<agentType>`
   - Last heartbeat: `<heartbeatAt>` (<elapsed>s ago)
   - Task version: `<taskVersion>`
+  - **Summary:** The executor session <sessionId> appears to have crashed. Last heartbeat was 180s ago. Released the task lock so other sessions can pick up the task.
+```
+
+If no stale locks were found, write:
+```markdown
+## <timestamp>
+- No stale locks found. All <count> locks are healthy.
 ```
