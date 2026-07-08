@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { getTaskFilePath, moveTask } from '../core/state';
+import { getTaskFilePath, getTaskState, moveTask } from '../core/state';
 import { appendRunLog } from '../core/runlog';
 import { validateTaskYaml } from '../core/validate';
 import { TaskYaml } from '../core/types';
@@ -37,6 +37,8 @@ export function rollbackTask(taskDir: string, taskId: string, targetVersion: str
     description: task.description,
     implementationNotes: task.implementationNotes,
     testFlows: task.testFlows ? task.testFlows.map(f => ({ ...f })) : undefined,
+    bounceCount: task.bounceCount,
+    changeDescription: `Rollback to ${targetVersion}`,
   };
 
   // Restore content from target snapshot
@@ -66,6 +68,8 @@ export function rollbackTask(taskDir: string, taskId: string, targetVersion: str
 
   fs.writeFileSync(filePath, stringifyYaml(task), 'utf-8');
 
+  const actualState = getTaskState(taskDir, taskId) || 'pending';
+
   appendRunLog(taskDir, {
     timestamp: new Date().toISOString(),
     agentType: 'user',
@@ -73,7 +77,9 @@ export function rollbackTask(taskDir: string, taskId: string, targetVersion: str
     agentName: null,
     taskId,
     taskVersion: newVersion,
-    taskState: 'pending',
+    taskState: actualState,
+    fromState: actualState,
+    toState: actualState,
     action: 'rollback',
     description: `User rolled back task '${taskId}' to ${targetVersion} content (new version v${newVersion})`,
     summary: `Restored content from ${targetVersion}. Old v${newVersion - 1} snapshotted. New version: v${newVersion}.`,
