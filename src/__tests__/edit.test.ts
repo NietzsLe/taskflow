@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { stringify as stringifyYaml } from 'yaml';
+import { stringify as stringifyYaml, parse as parseYaml } from 'yaml';
 import { ensureStateDirs, TaskLockedError } from '../core/state';
 import { acquireTaskLock } from '../core/lock';
 import { TaskYaml, TaskState } from '../core/types';
@@ -101,7 +101,7 @@ describe('editTask lock check (A3)', () => {
     expect(fs.existsSync(path.join(taskDir, 'pending', 't6.yaml'))).toBe(true);
     expect(fs.existsSync(path.join(taskDir, 'processing', 't6.yaml'))).toBe(false);
     const raw = fs.readFileSync(path.join(taskDir, 'pending', 't6.yaml'), 'utf-8');
-    const task = require('yaml').parse(raw) as TaskYaml;
+    const task = parseYaml(raw) as TaskYaml;
     expect(task.version).toBe(2);
     expect(task.description).toBe('v2 content');
     expect(task.versions?.v1).toBeDefined();

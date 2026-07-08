@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { parse as parseYaml } from 'yaml';
 import { listTasks } from '../core/state';
 
 /**
@@ -21,7 +22,6 @@ export function cleanDone(taskDir: string, options: { before?: string; dryRun?: 
     const filePath = path.join(taskDir, 'done', t.filename);
     try {
       const raw = fs.readFileSync(filePath, 'utf-8');
-      const { parse: parseYaml } = require('yaml');
       const task = parseYaml(raw);
       const updatedAt = new Date(task.updatedAt || task.createdAt || 0);
       if (updatedAt < beforeDate) {

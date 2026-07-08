@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { stringify as stringifyYaml } from 'yaml';
+import { stringify as stringifyYaml, parse as parseYaml } from 'yaml';
 import { ensureStateDirs } from '../../core/state';
 import { TaskYaml, TaskState } from '../../core/types';
 import { writeDefaultConfig } from '../../core/test-util';
@@ -58,7 +58,6 @@ describe('answerQuestion', () => {
     writeTask('blocked', task);
     answerQuestion(path.join(tmpDir, '.tasks'), 't1', 'q1', 'Use NextAuth.js');
     const raw = fs.readFileSync(path.join(tmpDir, '.tasks', 'blocked', 't1.yaml'), 'utf-8');
-    const { parse: parseYaml } = require('yaml');
     const updated = parseYaml(raw);
     expect(updated.pendingQuestions[0].answered).toBe(true);
     expect(updated.pendingQuestions[0].answer).toBe('Use NextAuth.js');

@@ -290,9 +290,36 @@ Prints step-by-step instructions for editing `.tasks/config.yaml` to add `custom
 ```
 npx taskflow init              # scaffold .tasks/ + install skills to .agents/skills/
 npx taskflow init --no-skills  # scaffold .tasks/ only
+npx taskflow init --force      # backup existing .tasks/ and re-init from scratch
 ```
 
-Creates the state directories, `locks/`, `runs/`, copies `config.yaml`, and (unless `--no-skills`) copies the skill files into `.agents/skills/`. Will not overwrite an existing `config.yaml` or skill file.
+Creates the state directories, `locks/`, `runs/`, copies `config.yaml`, and (unless `--no-skills`) copies the skill files into `.agents/skills/`. Will not overwrite an existing `config.yaml` or skill file. Use `--force` to backup and re-init.
+
+### 2.13 Git Flow commands (optional — only when `config.gitFlow.enabled` is true)
+
+When git flow is enabled, these commands are available:
+
+| Command | Purpose |
+|---------|---------|
+| `npx taskflow worktree create <id>` | Create a git worktree for a task |
+| `npx taskflow worktree remove <id>` | Remove a task's worktree and branch |
+| `npx taskflow worktree list` | List all worktrees with associated tasks |
+| `npx taskflow merge <id>` | Merge the task's worktree branch into baseBranch |
+| `npx taskflow revert-merge <id>` | Revert the last merge commit for a task |
+| `npx taskflow commit <id> -m "<msg>"` | Commit changes in the task worktree (conventional message) |
+| `npx taskflow cleanup-worktrees` | Remove worktrees for done/blocked tasks + orphan worktrees |
+
+When git flow is disabled, these commands print "Git flow is disabled" and exit.
+
+### 2.14 `cleanup-worktrees` — Help clean up finished worktrees
+
+Run this periodically to let the agent help clean up worktrees that are no longer needed:
+
+```bash
+npx taskflow cleanup-worktrees
+```
+
+This removes worktrees for tasks in `done`, `blocked`, or `archive` states, and also removes orphan worktrees (exist in git but no associated task). Tasks still in `processing` or `testing` are skipped.
 
 ---
 
@@ -306,6 +333,7 @@ Creates the state directories, `locks/`, `runs/`, copies `config.yaml`, and (unl
 | **Do not skip review** | Tasks must go through `review` before reaching `done` (only the user can move `review → done`). |
 | **Prefer the lock-releaser over manual unlock** | Use `taskflow unlock` only for manual recovery; the framework reaps stale locks automatically. |
 | **Custom instructions do not replace the framework** | The framework orchestrates (lock, state, run log); custom instructions only guide how the agent does the task. |
+| **Git flow is opt-in** | When `config.gitFlow.enabled` is false (default), no git operations happen. Enable in config to use worktrees. |
 
 ## 4. Special Cases
 
@@ -313,7 +341,9 @@ Creates the state directories, `locks/`, `runs/`, copies `config.yaml`, and (unl
 |-----------|--------|
 | User wants to edit a `done` task | Create a new task (`add`) instead — editing `done` is rejected by the CLI. |
 | User wants to edit a `review` task | `reject` it first (back to `pending`), then `edit`. Editing `review` is rejected by the CLI. |
-| User wants to "delete" a task | Move it to `.tasks/done/` with a "deleted by user" note (there is no `delete` command). |
+| User wants to "delete" a task | Use `taskflow delete <id>` — moves to `.tasks/archive/` with a deletion note. |
 | User does not remember the ID | Use `list [state]` to find it, or `status <id>` once known. |
 | User wants custom instructions but is unsure what to add | Suggest common use cases: use brainstorming, reference docs, run lint, take screenshots on test failure, check logs. Use `setup-custom` for the exact steps. |
 | User reports a stuck task | Run `status <id>` to see the lock holder + heartbeat; if stale, `unlock <id>` (or `unlock` for infra). |
+| User wants to clean up old worktrees | Run `taskflow cleanup-worktrees` — removes worktrees for done/blocked/orphan tasks. |
+| User wants to re-init TaskFlow | Use `taskflow init --force` — backs up existing `.tasks/` and re-creates from scratch. |
