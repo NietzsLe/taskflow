@@ -12,6 +12,8 @@ TaskFlow is not a prompting tool. It is the **control plane** for loop engineeri
 
 > **Philosophy:** Don't prompt agents manually. Design the loop. Let TaskFlow handle state, locking, and history.
 
+> **⚠️ Tool support:** TaskFlow is currently designed and tested for **Opencode**. Other coding agents (Claude Code, Codex, Cursor, etc.) can use the file-based primitives directly, but the skill templates, agent instructions, and loop patterns are optimized for Opencode's agent model. Contributions to add first-class support for other tools are welcome.
+
 ---
 
 ## Loop Engineering — Concepts & Mapping
