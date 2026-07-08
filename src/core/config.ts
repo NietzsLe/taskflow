@@ -479,6 +479,11 @@ export function loadConfig(taskDir: string): TaskFlowConfig {
   if (!parsed || typeof parsed !== 'object') {
     return getDefaultConfig();
   }
+  // Backward compat: map blockedCheckIntervalSeconds → checkIntervalSeconds
+  const rawParsed = parsed as Record<string, any>;
+  if (rawParsed.notification?.blockedCheckIntervalSeconds !== undefined && rawParsed.notification?.checkIntervalSeconds === undefined) {
+    rawParsed.notification.checkIntervalSeconds = rawParsed.notification.blockedCheckIntervalSeconds;
+  }
   const coerced = coerceConfig(parsed);
   const defaults = getDefaultConfig();
   return deepMergeConfig(defaults, coerced);
