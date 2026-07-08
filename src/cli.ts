@@ -22,6 +22,11 @@ import { cleanDone } from './commands/clean';
 import { checkInfrastructure } from './commands/check-infra';
 import { diffTask } from './commands/diff';
 import { rollbackTask } from './commands/rollback';
+import { worktreeCreate, worktreeRemove, worktreeList } from './commands/worktree';
+import { mergeTaskBranch } from './commands/merge';
+import { revertTaskMerge } from './commands/revert-merge';
+import { commitTask } from './commands/commit';
+import { cleanupWorktrees } from './commands/cleanup-worktrees';
 
 const program = new Command();
 
@@ -744,6 +749,64 @@ program
   .action((id: string, version: string) => {
     const taskDir = path.join(process.cwd(), '.tasks');
     rollbackTask(taskDir, id, version);
+  });
+
+program
+  .command('worktree <action> [id]')
+  .description('Manage worktrees (create|remove|list) for git flow')
+  .action((action: string, id?: string) => {
+    const taskDir = path.join(process.cwd(), '.tasks');
+    const config = loadConfig(taskDir);
+    if (action === 'list') {
+      worktreeList(taskDir, config.gitFlow);
+    } else if (action === 'create') {
+      if (!id) { console.error('Usage: taskflow worktree create <id>'); process.exit(1); }
+      worktreeCreate(taskDir, id, config.gitFlow);
+    } else if (action === 'remove') {
+      if (!id) { console.error('Usage: taskflow worktree remove <id>'); process.exit(1); }
+      worktreeRemove(taskDir, id, config.gitFlow);
+    } else {
+      console.error(`Unknown action '${action}'. Use: create, remove, list`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('merge <id>')
+  .description('Merge the task worktree branch into baseBranch (git flow)')
+  .action((id: string) => {
+    const taskDir = path.join(process.cwd(), '.tasks');
+    const config = loadConfig(taskDir);
+    mergeTaskBranch(taskDir, id, config.gitFlow);
+  });
+
+program
+  .command('revert-merge <id>')
+  .description('Revert the last merge commit for a task (git flow)')
+  .action((id: string) => {
+    const taskDir = path.join(process.cwd(), '.tasks');
+    const config = loadConfig(taskDir);
+    revertTaskMerge(taskDir, id, config.gitFlow);
+  });
+
+program
+  .command('commit <id>')
+  .description('Commit all changes in the task worktree with conventional commit message (git flow)')
+  .option('-m, --message <text>', 'Commit message')
+  .action((id: string, options: { message?: string }) => {
+    const taskDir = path.join(process.cwd(), '.tasks');
+    const config = loadConfig(taskDir);
+    if (!options.message) { console.error('Usage: taskflow commit <id> -m "<message>"'); process.exit(1); }
+    commitTask(taskDir, id, options.message, config.gitFlow);
+  });
+
+program
+  .command('cleanup-worktrees')
+  .description('Remove worktrees for done/blocked tasks and orphan worktrees (git flow)')
+  .action(() => {
+    const taskDir = path.join(process.cwd(), '.tasks');
+    const config = loadConfig(taskDir);
+    cleanupWorktrees(taskDir, config.gitFlow);
   });
 
 program

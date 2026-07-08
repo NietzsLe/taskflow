@@ -74,6 +74,10 @@ Read `.tasks/config.yaml` to get parameters:
 - `heartbeat.staleThresholdSeconds` — stale threshold (default 120s)
 - `executor.maxPickupAttempts` — max task-finding attempts (default 5)
 - `executor.pickupRetryDelaySeconds` — delay between retries (default 30s)
+- `gitFlow.enabled` — if true, use worktree-based isolation (default false)
+- `gitFlow.baseBranch` — the branch tester tests on (default "main")
+- `gitFlow.commitConvention` — "conventional" or "plain" (default "conventional")
+- `gitFlow.mergeStrategy` — "merge" | "rebase" | "squash" (default "merge")
 
 ### Step 1.5: Read custom instructions
 
@@ -143,9 +147,43 @@ Fields to read:
 
 **Do not read** `testFlows` or `testResults` — those are for the tester.
 
+### Step 5.5: Create worktree (git flow only — if config.gitFlow.enabled)
+
+If `config.gitFlow.enabled` is `true`, create a worktree for isolated implementation:
+
+```bash
+npx taskflow worktree create <task-id>
+```
+
+This creates a git worktree at `.worktrees/<task-id>` with a new branch `taskflow/<task-id>` from `config.gitFlow.baseBranch`. The worktree path is recorded in the task YAML under `gitFlow.worktreePath`.
+
+After creating the worktree, **`cd` into the worktree path** to do all implementation work there:
+```bash
+cd .worktrees/<task-id>
+```
+
+If `config.gitFlow.enabled` is `false`, skip this step — implement directly in the current working tree.
+
 ### Step 6: Implement
 
 Based on `description` and `implementationNotes`, implement the feature.
+
+**If git flow is enabled, work inside the worktree** (`.worktrees/<task-id>`). Commit frequently after each unit of work:
+
+```bash
+npx taskflow commit <task-id> -m "feat: add login form"
+npx taskflow commit <task-id> -m "fix: handle null user"
+npx taskflow commit <task-id> -m "test: add login integration test"
+```
+
+**Commit convention** (when `config.gitFlow.commitConvention == "conventional"`):
+- `feat(<task-id>): <description>` — new feature
+- `fix(<task-id>): <description>` — bug fix
+- `refactor(<task-id>): <description>` — refactor
+- `test(<task-id>): <description>` — tests
+- `docs(<task-id>): <description>` — docs
+
+Commit after each file or logical unit completed — do NOT wait until the end. This keeps history granular and safe.
 
 **During implementation, periodically every `config.heartbeat.intervalSeconds` seconds:**
 
@@ -158,10 +196,15 @@ Based on `description` and `implementationNotes`, implement the feature.
 When implementation is done:
 
 1. **Move to processing**: Move file `pending/` → `processing/`. Write run log action `implement-start`.
-2. **Move to testing**: Move file `processing/` → `testing/`. Reset `testResults` in the task YAML. Write run log action `implement-done`.
-3. **Release lock**: Run `npx taskflow unlock <task-id>` to delete `.tasks/locks/task-<id>.lock`.
+2. **Merge worktree into base** (git flow only): If `config.gitFlow.enabled`, merge the feature branch into `config.gitFlow.baseBranch` so the tester can test it:
+   ```bash
+   npx taskflow merge <task-id>
+   ```
+   This records the merge commit SHA in the task YAML (`gitFlow.mergeCommit`). If the merge fails (conflict), resolve it manually, then re-run `npx taskflow merge <task-id>`.
+3. **Move to testing**: Move file `processing/` → `testing/`. Reset `testResults` in the task YAML. Write run log action `implement-done`.
+4. **Release lock**: Run `npx taskflow unlock <task-id>` to delete `.tasks/locks/task-<id>.lock`.
 
-> Note: Steps 7.1 and 7.2 are two separate state transitions (`pending → processing`, then `processing → testing`), not a single combined move.
+> Note: Steps 7.1 and 7.3 are two separate state transitions (`pending → processing`, then `processing → testing`), not a single combined move.
 
 ### Step 8: Handle blocked
 
@@ -171,6 +214,29 @@ If an issue cannot be resolved:
 2. Write run log action `implement-blocked`
 3. Release lock
 4. Notify the user
+
+### Step 8.5: Fix bugs from tester (when task returns from testing → processing)
+
+When the tester reports bugs and moves the task back to `processing`:
+
+1. **Revert the merge** (git flow only): Remove your merged code from the base branch so the tester doesn't test broken code:
+   ```bash
+   npx taskflow revert-merge <task-id>
+   ```
+2. **Read `bugs[]` in the task YAML** to understand what failed.
+3. **Fix in the worktree** (cd back into `.worktrees/<task-id>`), committing frequently.
+4. **Re-merge** after fixes:
+   ```bash
+   npx taskflow merge <task-id>
+   ```
+5. **Move back to testing**: Move `processing/` → `testing/`. Write run log action `implement-done`.
+
+### Step 9: Worktree cleanup (when task is approved)
+
+When the user approves the task (task → done), the framework automatically cleans up the worktree if `config.gitFlow.autoCleanup` is true. The user can also manually clean up via:
+```bash
+npx taskflow cleanup-worktrees
+```
 
 ## 4. State transitions performed by this skill
 

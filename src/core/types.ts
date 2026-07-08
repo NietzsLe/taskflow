@@ -1,3 +1,10 @@
+export interface TaskGitFlow {
+  worktreePath?: string;        // .worktrees/<task-id>
+  branchName?: string;          // taskflow/<task-id>
+  mergeCommit?: string;         // SHA of the merge commit on base branch
+  baseBranchAtMerge?: string;   // SHA of base branch at merge time
+}
+
 export interface TaskYaml {
   id: string;
   name: string;
@@ -13,6 +20,7 @@ export interface TaskYaml {
   blockedReason?: string;
   previousState?: TaskState;
   pendingQuestions?: PendingQuestion[];
+  gitFlow?: TaskGitFlow;
 }
 
 export interface PendingQuestion {

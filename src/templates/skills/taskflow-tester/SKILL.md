@@ -103,6 +103,18 @@ Read the following fields from `config.tester`:
 
 Read all `.yaml` files in `.tasks/testing/`.
 
+### Step 2.5: Switch to base branch (git flow only — if config.gitFlow.enabled)
+
+If `config.gitFlow.enabled` is `true`, ensure you're testing on the base branch (which has the executor's merged code):
+
+```bash
+git checkout <config.gitFlow.baseBranch>
+```
+
+The executor has already merged their worktree branch into the base branch before moving the task to testing. You test the code on the base branch, NOT on a worktree.
+
+If `config.gitFlow.enabled` is `false`, test on the current working tree.
+
 ### Step 3: Check locks
 
 For each task file, check 2 locks:
@@ -157,22 +169,31 @@ Read `testResults.flows.<flow-name>.pass`:
 - If `true` and `config.test.skipPassedFlows == true` → **skip**, do not run again
 - If `false` or missing → run this flow
 
-#### 7b. Check infrastructure
+#### 7b. Check infrastructure (check first, setup only if needed)
+
+**Before running any test flow, check if the infrastructure is already up** to avoid unnecessary restarts:
+
+```bash
+npx taskflow check-infra <env>
+```
+
+If all required services are healthy → **skip setup, proceed to test flows directly** (saves time).
+
+If some services are not available → set them up:
 
 Read the flow's `environment` (natural language text). Cross-reference with `config.infrastructure.environments`:
 
 1. **Identify the environment**: The flow mentions services → look them up in `config.infrastructure.environments.<env>.services`
-2. **Check each service**:
-   - `service.check.method == "port"` → check port `service.check.port` on `service.check.host`
-   - `service.check.method == "http"` → GET `service.check.url`, assert status = `service.check.expectedStatus`
-   - `service.check.method == "command"` → run command, check exit code
-3. **If service is not running**:
+2. **Setup missing services**:
    - `service.setup.auto == true` → run `service.setup.command` with timeout `service.setup.timeoutSeconds`
    - `service.setup.auto == false` → guide user via `service.setup.instruction`
-4. **Check seed data**:
+3. **Check seed data**:
    - Look up `config.infrastructure.seed` → verify each seed via `seed.check.method`
    - If missing → run `seed.setup.command`
-5. **If a `required: true` service cannot start** → write `blockedReason`, release locks, notify user
+4. **If a `required: true` service cannot start** → write `blockedReason`, release locks, notify user
+5. **Re-run `npx taskflow check-infra <env>`** to confirm all services are healthy before proceeding.
+
+> The tester has full authority to set up the infrastructure (docker compose up, npm run dev, seed data, etc.). Read `config.infrastructure.environments.<env>.services[].setup` for the exact commands.
 
 #### 7c. Run steps
 

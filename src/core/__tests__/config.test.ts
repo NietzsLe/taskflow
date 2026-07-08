@@ -28,6 +28,14 @@ describe('getDefaultConfig', () => {
     expect(cfg.runLog.enabled).toBe(true);
     expect(cfg.user.allowMoveFromStates).toEqual(['defined', 'pending', 'blocked']);
     expect(cfg.notification.channels.length).toBeGreaterThan(0);
+    // gitFlow defaults
+    expect(cfg.gitFlow.enabled).toBe(false);
+    expect(cfg.gitFlow.baseBranch).toBe('main');
+    expect(cfg.gitFlow.worktreeDir).toBe('.worktrees');
+    expect(cfg.gitFlow.branchPrefix).toBe('taskflow/');
+    expect(cfg.gitFlow.autoCleanup).toBe(true);
+    expect(cfg.gitFlow.commitConvention).toBe('conventional');
+    expect(cfg.gitFlow.mergeStrategy).toBe('merge');
   });
 });
 
@@ -157,6 +165,42 @@ describe('coerceConfig (D7, D8)', () => {
     );
     const cfg = loadConfig(taskDir);
     expect(cfg.heartbeat.staleThresholdSeconds).toBe(10); // clamped to min
+  });
+});
+
+describe('gitFlow config', () => {
+  it('defaults to disabled when not in config file', () => {
+    fs.writeFileSync(path.join(taskDir, 'config.yaml'), 'heartbeat:\n  intervalSeconds: 60\n', 'utf-8');
+    const cfg = loadConfig(taskDir);
+    expect(cfg.gitFlow.enabled).toBe(false);
+    expect(cfg.gitFlow.baseBranch).toBe('main');
+  });
+
+  it('overrides gitFlow fields when present', () => {
+    fs.writeFileSync(
+      path.join(taskDir, 'config.yaml'),
+      'gitFlow:\n  enabled: true\n  baseBranch: develop\n  mergeStrategy: squash\n  autoCleanup: false\n',
+      'utf-8'
+    );
+    const cfg = loadConfig(taskDir);
+    expect(cfg.gitFlow.enabled).toBe(true);
+    expect(cfg.gitFlow.baseBranch).toBe('develop');
+    expect(cfg.gitFlow.mergeStrategy).toBe('squash');
+    expect(cfg.gitFlow.autoCleanup).toBe(false);
+    expect(cfg.gitFlow.worktreeDir).toBe('.worktrees');
+    expect(cfg.gitFlow.commitConvention).toBe('conventional');
+  });
+
+  it('partial override keeps defaults', () => {
+    fs.writeFileSync(
+      path.join(taskDir, 'config.yaml'),
+      'gitFlow:\n  enabled: true\n',
+      'utf-8'
+    );
+    const cfg = loadConfig(taskDir);
+    expect(cfg.gitFlow.enabled).toBe(true);
+    expect(cfg.gitFlow.baseBranch).toBe('main');
+    expect(cfg.gitFlow.branchPrefix).toBe('taskflow/');
   });
 });
 

@@ -316,6 +316,13 @@ Custom instructions/skills/tools do **not** conflict with the framework. The fra
 | `npx taskflow runs` | View run logs (`--task <id>`, `--session <id>`, `--agent <type>`) |
 | `npx taskflow resolve-blocked [id]` | List/resolve blocked tasks with pending questions |
 | `npx taskflow setup-custom <agent>` | Show instructions for configuring custom instructions (executor or tester) |
+| `npx taskflow worktree create <id>` | Create a git worktree for a task (git flow, opt-in) |
+| `npx taskflow worktree remove <id>` | Remove a task's worktree and branch |
+| `npx taskflow worktree list` | List all worktrees with associated tasks |
+| `npx taskflow merge <id>` | Merge task worktree branch into baseBranch (git flow) |
+| `npx taskflow revert-merge <id>` | Revert the last merge commit for a task |
+| `npx taskflow commit <id> -m <msg>` | Commit changes in task worktree with conventional message |
+| `npx taskflow cleanup-worktrees` | Remove worktrees for done/blocked tasks + orphans |
 
 ---
 
@@ -369,6 +376,72 @@ npx taskflow runs --task <id>           # View task history
 npx taskflow runs --session <id>        # View session history
 npx taskflow runs --agent executor      # Filter by agent type
 ```
+
+---
+
+## Git Flow (Optional — disabled by default)
+
+TaskFlow supports an optional **worktree-based git flow** that isolates executor work in separate git worktrees. This is **off by default** — set `gitFlow.enabled: true` in config to opt in.
+
+### How it works
+
+```
+Executor flow (gitFlow.enabled=true):
+  1. Pick task from pending/
+  2. Create worktree: git worktree add .worktrees/<id> -b taskflow/<id> baseBranch
+  3. cd into worktree, implement, COMMIT FREQUENTLY (conventional commits)
+  4. Implementation done → MERGE worktree branch into baseBranch
+  5. Move task → testing (tester tests on baseBranch)
+
+  If tester reports bugs (task → processing):
+  6. REVERT merge on baseBranch
+  7. Fix in worktree, commit, RE-MERGE
+  8. Move → testing again
+
+  When user approves (task → done):
+  9. CLEANUP worktree (if autoCleanup: true)
+
+Tester flow (always tests on base branch):
+  1. Pick task from testing/
+  2. git checkout baseBranch (has executor's merged code)
+  3. CHECK infra (check-infra) — only setup if needed
+  4. Run test flows
+  5. Pass → review | Fail → record bugs, task → processing (executor fixes)
+```
+
+### Configuration
+
+```yaml
+gitFlow:
+  enabled: false                    # Set to true to opt-in
+  baseBranch: "main"                # The branch tester tests on
+  worktreeDir: ".worktrees"         # Directory for worktrees
+  branchPrefix: "taskflow/"         # Prefix for feature branches
+  autoCleanup: true                 # Remove worktree after task done
+  commitConvention: "conventional" # "conventional" (feat:/fix:/refactor:) or "plain"
+  mergeStrategy: "merge"            # "merge" | "rebase" | "squash"
+```
+
+### Commit convention
+
+When `commitConvention: "conventional"`, the `taskflow commit` command formats messages as:
+- `feat(<task-id>): <description>` — new feature
+- `fix(<task-id>): <description>` — bug fix
+- `refactor(<task-id>): <description>` — refactor
+
+When `commitConvention: "plain"`, messages are prefixed with `[<task-id>] <description>`.
+
+### Who does what
+
+| Role | Worktree? | Tests on | Merges? |
+|------|-----------|----------|---------|
+| Executor | Yes (creates worktree) | — | Yes (merges into base before testing) |
+| Tester | No | baseBranch | No |
+| User | No | — | No (approve only moves to done) |
+
+### Cleanup
+
+Run `npx taskflow cleanup-worktrees` (via the `taskflow-user` skill) to remove worktrees for tasks that are done, blocked, or orphaned.
 
 ---
 

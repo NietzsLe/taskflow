@@ -52,6 +52,17 @@ export interface TaskFlowConfig {
     blockedCheckIntervalSeconds: number;
     messageTemplate: string;
   };
+  gitFlow: GitFlowConfig;
+}
+
+export interface GitFlowConfig {
+  enabled: boolean;              // default false — entire git flow is opt-in
+  baseBranch: string;            // default "main" — the working branch tester tests on
+  worktreeDir: string;           // default ".worktrees" — where worktrees are created
+  branchPrefix: string;          // default "taskflow/" — prefix for feature branches
+  autoCleanup: boolean;          // default true — remove worktree after task done
+  commitConvention: 'conventional' | 'plain';  // default "conventional"
+  mergeStrategy: 'merge' | 'rebase' | 'squash'; // default "merge"
 }
 
 export interface NotificationChannel {
@@ -329,6 +340,15 @@ Examples:
 
 **Resolve:** \`npx taskflow resolve-blocked {{taskId}}\``,
     },
+    gitFlow: {
+      enabled: false,
+      baseBranch: 'main',
+      worktreeDir: '.worktrees',
+      branchPrefix: 'taskflow/',
+      autoCleanup: true,
+      commitConvention: 'conventional',
+      mergeStrategy: 'merge',
+    },
   };
 }
 
@@ -390,6 +410,15 @@ export function deepMergeConfig(defaults: TaskFlowConfig, parsed: Partial<TaskFl
       channels: parsed.notification?.channels ?? defaults.notification.channels,
       blockedCheckIntervalSeconds: parsed.notification?.blockedCheckIntervalSeconds ?? defaults.notification.blockedCheckIntervalSeconds,
       messageTemplate: parsed.notification?.messageTemplate ?? defaults.notification.messageTemplate,
+    },
+    gitFlow: {
+      enabled: parsed.gitFlow?.enabled ?? defaults.gitFlow.enabled,
+      baseBranch: parsed.gitFlow?.baseBranch ?? defaults.gitFlow.baseBranch,
+      worktreeDir: parsed.gitFlow?.worktreeDir ?? defaults.gitFlow.worktreeDir,
+      branchPrefix: parsed.gitFlow?.branchPrefix ?? defaults.gitFlow.branchPrefix,
+      autoCleanup: parsed.gitFlow?.autoCleanup ?? defaults.gitFlow.autoCleanup,
+      commitConvention: parsed.gitFlow?.commitConvention ?? defaults.gitFlow.commitConvention,
+      mergeStrategy: parsed.gitFlow?.mergeStrategy ?? defaults.gitFlow.mergeStrategy,
     },
   };
 }

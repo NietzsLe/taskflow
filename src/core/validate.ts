@@ -174,6 +174,16 @@ export function validateTaskYaml(raw: unknown): TaskYaml {
     task.pendingQuestions = raw.pendingQuestions.map((q, i) => asPendingQuestion(q, 'pendingQuestions', i));
   }
 
+  if (raw.gitFlow !== undefined && isObject(raw.gitFlow)) {
+    const gf = raw.gitFlow as Record<string, unknown>;
+    const taskGitFlow: import('./types').TaskGitFlow = {};
+    if (gf.worktreePath !== undefined) taskGitFlow.worktreePath = asOptionalString(gf.worktreePath, 'gitFlow.worktreePath');
+    if (gf.branchName !== undefined) taskGitFlow.branchName = asOptionalString(gf.branchName, 'gitFlow.branchName');
+    if (gf.mergeCommit !== undefined) taskGitFlow.mergeCommit = asOptionalString(gf.mergeCommit, 'gitFlow.mergeCommit');
+    if (gf.baseBranchAtMerge !== undefined) taskGitFlow.baseBranchAtMerge = asOptionalString(gf.baseBranchAtMerge, 'gitFlow.baseBranchAtMerge');
+    task.gitFlow = taskGitFlow;
+  }
+
   return task;
 }
 

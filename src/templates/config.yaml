@@ -196,3 +196,24 @@ notification:
     {{recentRunSummary}}
 
     **Resolve:** `npx taskflow resolve-blocked {{taskId}}`
+
+# ─────────────────────────────────────────────────────────────────────
+# Git Flow (optional — disabled by default)
+# Enable to use worktree-based isolation for executor agents.
+# When enabled:
+#   - Executor creates a worktree from baseBranch, implements, commits,
+#     and merges back into baseBranch BEFORE moving task to testing.
+#   - Tester tests on baseBranch (which has the merged code).
+#   - If tests fail, executor reverts the merge, fixes in worktree, re-merges.
+#   - On approve, worktree is cleaned up (if autoCleanup is true).
+# When disabled, executor works directly in the current working tree.
+# ─────────────────────────────────────────────────────────────────────
+
+# gitFlow:
+#   enabled: false                    # Set to true to opt-in
+#   baseBranch: "main"                # The branch tester tests on
+#   worktreeDir: ".worktrees"         # Directory for worktrees (relative to project root)
+#   branchPrefix: "taskflow/"         # Prefix for feature branches
+#   autoCleanup: true                 # Remove worktree after task is done
+#   commitConvention: "conventional"  # "conventional" (feat:/fix:/refactor:) or "plain"
+#   mergeStrategy: "merge"            # "merge" | "rebase" | "squash"
