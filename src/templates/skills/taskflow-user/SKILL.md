@@ -321,6 +321,78 @@ npx taskflow cleanup-worktrees
 
 This removes worktrees for tasks in `done`, `blocked`, or `archive` states, and also removes orphan worktrees (exist in git but no associated task). Tasks still in `processing` or `testing` are skipped.
 
+### 2.15 `test notif` — Test notification channels
+
+When the user says **"test notifications"**, **"test notif"**, **"test notification channels"**, or asks to verify that notifications work:
+
+#### Procedure
+
+1. Read `.tasks/config.yaml` → `notification` section.
+2. If `notification.enabled` is `false` → tell the user:
+   > "Notifications are disabled in config. Set `notification.enabled: true` in .tasks/config.yaml to enable."
+   Stop.
+3. Filter `notification.channels` to only those with `enabled: true`.
+4. If no active channels → tell the user:
+   > "No active notification channels. Edit .tasks/config.yaml and set `enabled: true` on the channels you want to use."
+   Stop.
+5. List the active channels to the user:
+   ```
+   Active notification channels:
+     1. [console] console-default
+     2. [webhook] slack-alerts
+     3. [email]  email-default
+   ```
+6. Tell the user: "I will send a test notification through each active channel. Please confirm whether you receive each one."
+
+7. For each active channel (in order):
+   a. **Read the channel's `guide` field** — this tells you HOW to send. Follow it exactly.
+   b. **Announce:** "Sending test through **[<type>] <name>**..."
+   c. **Send the test message:**
+      ```
+      TaskFlow test — channel <type>/<name> at <ISO timestamp>
+      This is a test. No action needed.
+      ```
+      Channel-specific sending:
+      - **console** → print to terminal.
+      - **file** → append to the channel's `path`.
+      - **webhook** → HTTP POST to `url` using `format` (slack/discord/teams/generic). Use `curl`.
+      - **email** → send via SMTP (`smtpHost`, `smtpPort`, `smtpUser`, `smtpPassword`, `from`, `to`). Use `curl` with `smtp://` or equivalent.
+      - **custom** → follow the `guide` instructions exactly.
+   d. **Ask:** "Did you receive the test from **[<type>] <name>**? (yes/no)"
+   e. **Handle response:**
+      - **yes** → mark PASSED.
+      - **no** → troubleshoot:
+        1. Re-read the `guide` and check for missed steps.
+        2. Verify config fields (URL, SMTP creds, file path, env vars).
+        3. If `${ENV_VAR}` is unresolved → tell user which variable is missing.
+        4. Fix and **retry once**.
+        5. If still fails → suggest: "Channel **[<type>] <name>** failed. Set `enabled: false` to disable it, or fix the config. Disable now? (yes/no)"
+        If yes → edit `.tasks/config.yaml`, set `enabled: false`. If no → leave enabled.
+
+8. **Report summary:**
+   ```
+   Notification test results:
+     ✓ [console] console-default — passed
+     ✓ [file]   file-default — passed
+     ✗ [webhook] slack-alerts — failed (user chose to keep enabled)
+   
+   Summary: 2 passed, 1 failed.
+   ```
+
+9. If any channel failed and was not disabled → warn:
+   > "Warning: <channel> is enabled but did not pass. It may silently fail when a task is blocked. Run `test notif` again after fixing the config."
+
+#### Adding a new channel (optional)
+
+If the user asks to add a new notification channel:
+
+1. Ask which type: webhook, email, or custom.
+2. Ask for a `name` to identify this instance (required when there are multiple instances of the same type).
+3. Help the user fill in the config fields per the channel type's guide in the default config template.
+4. Set `enabled: true`.
+5. Write the new channel into `.tasks/config.yaml` under `notification.channels`.
+6. Test the new channel using the same procedure as step 7 above.
+
 ---
 
 ## 3. Important Rules

@@ -174,6 +174,81 @@ Lock acquisition uses `O_CREAT | O_EXCL` (create-exclusive) for atomicity.
 
 ---
 
+## Notifications
+
+TaskFlow sends notifications when a task enters the `blocked/` state (an agent encountered questions it cannot resolve). The notifier agent reads `.tasks/config.yaml` and sends alerts through **all enabled channels**.
+
+### Active channels only
+
+Only channels with `enabled: true` are active. Disabled channels are skipped. Set `enabled: false` on channels you don't need — don't delete them, so you can re-enable later.
+
+Default active channels: `console` (terminal output) + `file` (`.tasks/notifications.log`).
+
+### Multiple instances per type
+
+One channel type (e.g. `webhook`) can have multiple instances — use the `name` field to distinguish them:
+
+```yaml
+notification:
+  channels:
+    - name: "slack-alerts"
+      type: "webhook"
+      enabled: true
+      url: "https://hooks.slack.com/services/..."
+      format: "slack"
+      guide: "..."
+    - name: "discord-alerts"
+      type: "webhook"
+      enabled: true
+      url: "https://discord.com/api/webhooks/..."
+      format: "discord"
+      guide: "..."
+```
+
+The `name` field is optional but strongly recommended when you have more than one instance of the same type.
+
+### Channel types
+
+| Type | Default | How it sends |
+|------|---------|--------------|
+| `console` | enabled | Prints to terminal |
+| `file` | enabled | Appends to file (`path` field) |
+| `webhook` | disabled | HTTP POST to `url` with `format` (slack/discord/teams/generic) |
+| `email` | disabled | SMTP send (`smtpHost`, `smtpPort`, `smtpUser`, `smtpPassword`, `from`, `to`) |
+| `custom` | disabled | Agent reads `guide` and follows the custom instructions |
+
+Every channel has a `guide` field — natural language instructions the agent reads to know how to send. This is the core design: the agent reads the guide and acts, no hardcoded sending logic.
+
+### Testing notification channels
+
+You should test notification channels before relying on them. TaskFlow provides two ways:
+
+1. **During `taskflow init`** (Step 3.5 of the init skill) — after scaffolding, the agent sends a test message through each active channel and asks you to confirm receipt.
+
+2. **Via the user skill** — say "test notif" or "test notifications" to the agent. The agent sends a test message through each active channel, asks you to confirm, and reports pass/fail per channel.
+
+The test message format:
+```
+TaskFlow test — channel <type>/<name> at <timestamp>
+This is a test. No action needed.
+```
+
+Failed channels should be fixed (per their `guide`) or disabled (`enabled: false`). Untested channels may silently fail when a real task gets blocked.
+
+### Environment variables
+
+Secrets (SMTP passwords, webhook URLs) can be referenced via `${ENV_VAR}` or `${ENV_VAR:default}` in config to avoid hardcoding:
+
+```yaml
+- name: "email-default"
+  type: "email"
+  enabled: true
+  smtpPassword: ${TF_SMTP_PASS}
+  # ...
+```
+
+---
+
 ## Task YAML Schema
 
 Each task is a single YAML file containing all metadata, implementation notes, test flows, and version history.

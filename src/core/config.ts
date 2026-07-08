@@ -66,6 +66,7 @@ export interface GitFlowConfig {
 }
 
 export interface NotificationChannel {
+  name?: string;           // optional label to distinguish multiple instances of the same type
   type: string;
   enabled: boolean;
   guide: string;
@@ -235,12 +236,14 @@ export function getDefaultConfig(): TaskFlowConfig {
       description: 'Configure notification channels to alert users when tasks are blocked. The notifier agent reads this config and sends alerts through all enabled channels.',
       channels: [
         {
+          name: 'console-default',
           type: 'console',
           enabled: true,
           guide: 'No setup needed. Notifications are printed to the terminal when the notifier agent runs. This channel is always available.',
           description: 'Output to terminal — always available, no setup needed',
         },
         {
+          name: 'file-default',
           type: 'file',
           enabled: true,
           path: '.tasks/notifications.log',
@@ -248,6 +251,7 @@ export function getDefaultConfig(): TaskFlowConfig {
           description: 'Append notifications to a markdown log file',
         },
         {
+          name: 'webhook-default',
           type: 'webhook',
           enabled: false,
           url: '',
@@ -280,6 +284,7 @@ export function getDefaultConfig(): TaskFlowConfig {
           description: 'Send HTTP POST to a webhook URL (Slack, Discord, Teams)',
         },
         {
+          name: 'email-default',
           type: 'email',
           enabled: false,
           smtpHost: '',
@@ -314,6 +319,7 @@ export function getDefaultConfig(): TaskFlowConfig {
           description: 'Send email via SMTP',
         },
         {
+          name: 'custom-default',
           type: 'custom',
           enabled: false,
           guide: `Describe how to send notifications using this channel. The notifier agent will read your instructions and execute them.

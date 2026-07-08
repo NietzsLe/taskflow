@@ -204,6 +204,75 @@ describe('gitFlow config', () => {
   });
 });
 
+describe('notification channel name field', () => {
+  it('default config includes name on all 5 channels', () => {
+    const cfg = getDefaultConfig();
+    const channels = cfg.notification.channels;
+    expect(channels).toHaveLength(5);
+    for (const ch of channels) {
+      expect(ch.name).toBeDefined();
+      expect(typeof ch.name).toBe('string');
+      expect(ch.name!.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('name field is optional — channel without name loads fine', () => {
+    fs.writeFileSync(
+      path.join(taskDir, 'config.yaml'),
+      'notification:\n  channels:\n    - type: webhook\n      enabled: true\n      url: "https://example.com/hook"\n      guide: "send it"\n',
+      'utf-8'
+    );
+    const cfg = loadConfig(taskDir);
+    // user-defined channels replace defaults (mergeArray returns parsed if present)
+    expect(cfg.notification.channels).toHaveLength(1);
+    expect(cfg.notification.channels[0].name).toBeUndefined();
+    expect(cfg.notification.channels[0].type).toBe('webhook');
+  });
+
+  it('multiple instances of same type with different names', () => {
+    fs.writeFileSync(
+      path.join(taskDir, 'config.yaml'),
+      `notification:
+  channels:
+    - name: "slack-alerts"
+      type: "webhook"
+      enabled: true
+      url: "https://hooks.slack.com/services/a"
+      format: "slack"
+      guide: "send to slack"
+    - name: "discord-alerts"
+      type: "webhook"
+      enabled: true
+      url: "https://discord.com/api/webhooks/b"
+      format: "discord"
+      guide: "send to discord"
+`,
+      'utf-8'
+    );
+    const cfg = loadConfig(taskDir);
+    expect(cfg.notification.channels).toHaveLength(2);
+    expect(cfg.notification.channels[0].name).toBe('slack-alerts');
+    expect(cfg.notification.channels[1].name).toBe('discord-alerts');
+    expect(cfg.notification.channels[0].type).toBe('webhook');
+    expect(cfg.notification.channels[1].type).toBe('webhook');
+    expect(cfg.notification.channels[0].url).not.toBe(cfg.notification.channels[1].url);
+  });
+
+  it('partial notification config keeps default channels with names', () => {
+    fs.writeFileSync(
+      path.join(taskDir, 'config.yaml'),
+      'notification:\n  enabled: false\n',
+      'utf-8'
+    );
+    const cfg = loadConfig(taskDir);
+    expect(cfg.notification.enabled).toBe(false);
+    expect(cfg.notification.channels.length).toBeGreaterThan(0);
+    for (const ch of cfg.notification.channels) {
+      expect(ch.name).toBeDefined();
+    }
+  });
+});
+
 describe('loadConfig env var resolution (G1)', () => {
   it('resolves ${ENV_VAR} from process.env', () => {
     process.env.TF_TEST_SMTP_PASS = 'secret123';

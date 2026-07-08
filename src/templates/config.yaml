@@ -84,15 +84,35 @@ notification:
     Configure notification channels to alert users when tasks are blocked.
     The notifier agent reads this config and sends alerts through all enabled channels.
     Every channel MUST have a "guide" field with natural language instructions on how to connect and use it.
+
+    ─────────────────────────────────────────────────────────────────────
+    ACTIVE CHANNELS:
+    - Only channels with `enabled: true` are active. The notifier agent skips disabled channels.
+    - Set `enabled: false` on channels you don't need — don't delete them, so you can re-enable later.
+
+    MULTIPLE INSTANCES:
+    - One type (e.g. webhook) can have multiple instances — use the `name` field to distinguish them.
+    - Example: 2 webhook instances — one for Slack (name: "slack-alerts"), one for Discord (name: "discord-alerts").
+    - The `name` field is optional but strongly recommended when you have more than one instance of the same type.
+
+    TESTING:
+    - During `taskflow init` (Step 3.5), or via the user skill command `test notif`,
+      the agent sends a test message through each active channel and asks you to confirm receipt.
+    - Failed channels should be fixed (per their `guide`) or disabled (`enabled: false`).
+    ─────────────────────────────────────────────────────────────────────
   channels:
-    - type: "console"
+    # ── Console (default, always works) ──────────────────────────────
+    - name: "console-default"
+      type: "console"
       enabled: true
       guide: |
         No setup needed. Notifications are printed to the terminal when the notifier agent runs.
         This channel is always available.
       description: "Output to terminal — always available, no setup needed"
 
-    - type: "file"
+    # ── File log (default, always works) ─────────────────────────────
+    - name: "file-default"
+      type: "file"
       enabled: true
       path: ".tasks/notifications.log"
       guide: |
@@ -100,7 +120,23 @@ notification:
         Check this file periodically or use a log viewer. The file is markdown-formatted for readability.
       description: "Append notifications to a markdown log file"
 
-    - type: "webhook"
+    # ── Webhook (disabled by default) ────────────────────────────────
+    # To add a 2nd webhook instance, copy this block and change `name` + `url` + `format`.
+    # Example:
+    #   - name: "slack-alerts"
+    #     type: "webhook"
+    #     enabled: true
+    #     url: "https://hooks.slack.com/services/..."
+    #     format: "slack"
+    #     guide: "..."
+    #   - name: "discord-alerts"
+    #     type: "webhook"
+    #     enabled: true
+    #     url: "https://discord.com/api/webhooks/..."
+    #     format: "discord"
+    #     guide: "..."
+    - name: "webhook-default"
+      type: "webhook"
       enabled: false
       url: ""
       method: "POST"
@@ -132,7 +168,9 @@ notification:
            - Set "format" to "generic"
       description: "Send HTTP POST to a webhook URL (Slack, Discord, Teams)"
 
-    - type: "email"
+    # ── Email via SMTP (disabled by default) ─────────────────────────
+    - name: "email-default"
+      type: "email"
       enabled: false
       smtpHost: ""
       smtpPort: 587
@@ -166,7 +204,9 @@ notification:
            - Set smtpUser and smtpPassword to your credentials
       description: "Send email via SMTP"
 
-    - type: "custom"
+    # ── Custom channel (disabled by default) ────────────────────────
+    - name: "custom-default"
+      type: "custom"
       enabled: false
       guide: |
         Describe how to send notifications using this channel. The notifier agent will

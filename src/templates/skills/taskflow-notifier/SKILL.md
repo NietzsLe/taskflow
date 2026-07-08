@@ -85,6 +85,10 @@ For each channel where `enabled: true`:
 6. If the channel is `email` → send email using SMTP settings
 7. If the channel is `custom` → read the `guide` and follow the custom instructions
 
+> **Multiple instances:** A channel type can have multiple instances (e.g. two webhook channels — one for Slack, one for Discord). Each has an optional `name` field. When logging or reporting, include the `name` (or `type` if `name` is absent) so the user can tell which instance was used. Send through ALL enabled channels — do not pick just one.
+
+> **Failed channels:** If a channel fails to send (network error, bad credentials, etc.), log the failure and continue with the next enabled channel. Do not abort the entire notification cycle because one channel failed. A channel that was not tested during init (see taskflow-init Step 3.5) or via `test notif` (see taskflow-user Section 2.15) may silently fail — always log the result.
+
 ### Step 5: Log
 
 Write to `.tasks/runs/notifier-log.md`. You can use the `appendNotifierLog` helper from `src/core/runlog.ts` if calling via code, or write directly with `fs.appendFileSync`:
