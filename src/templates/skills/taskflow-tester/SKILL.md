@@ -12,11 +12,160 @@ Instructions for the agent testing a task. The agent reads this skill to know ho
 ## STRICT BOUNDARIES — READ BEFORE DOING ANYTHING
 
 - Tester ONLY reads from `.tasks/testing/`
-- Tester ONLY moves tasks: `testing → review` (all pass) or `testing → processing` (fail)
+- Tester ONLY moves tasks: `testing → review` (all pass) or `testing → pending` (fail)
 - Tester MUST NEVER move a task to `done` — that's User only
+- Tester MUST NEVER call `npx taskflow approve` — that's User only. The `approve` command requires `--user` flag.
+- Tester MUST NEVER use `--force` to move a task to `done` — the CLI will reject this without `--user` flag.
 - Tester MUST NEVER touch `.tasks/defined/`, `.tasks/pending/`, `.tasks/processing/`, `.tasks/review/`, `.tasks/done/`
 - If no tasks in `testing/` → **STOP immediately. Do NOT create new tasks.**
 - The `/loop` mechanism will restart to retry later.
+
+---
+
+## FRESH START PROTOCOL — EXECUTE FIRST ON EVERY LOOP
+
+Before doing ANYTHING else, execute these steps IN ORDER. Do NOT skip any step.
+
+### Step 0a: Recover stuck tasks first
+```bash
+npx taskflow recover --dry-run
+```
+If there are stuck tasks (in processing/testing with no lock), recover them:
+```bash
+npx taskflow recover
+```
+
+### Step 0b: List ALL tasks across ALL states
+```bash
+npx taskflow list
+```
+This gives you the FULL picture of what exists. Do NOT skip this step.
+
+### Step 0c: List your target state
+```bash
+npx taskflow list testing
+```
+
+### Step 0d: For each task found, read the FULL YAML
+```bash
+cat .tasks/testing/<task-id>.yaml
+```
+Read these fields to understand what has been done:
+- `statusDescription` — what the last agent was doing
+- `lastAgentSummary` — what the last agent reported
+- `attemptCount` — how many times this has been tried
+- `bugs[]` — what bugs were found (if returned from executor)
+- `testResults` — what test results exist (which flows passed/failed)
+
+### Step 0e: Only NOW proceed to Step 1
+
+---
+
+## RE-VERIFY ON EVERY LOOP — MANDATORY
+
+**CRITICAL:** Do NOT trust context from previous sessions. On EVERY loop iteration, you MUST re-verify the actual filesystem state.
+
+| What to check | How to check | Why |
+|--------------|--------------|-----|
+| Tasks in testing | `npx taskflow list testing` | Tasks may have been added/moved since last session |
+| Lock files | `ls .tasks/locks/` | Locks may have been released or reaped |
+| Lock file validity | `cat .tasks/locks/task-<id>.lock` | Must be valid YAML with `sessionId`, `heartbeatAt` |
+| Infra lock | `cat .tasks/locks/infra.lock` | Must be valid YAML with `sessionId`, `heartbeatAt` |
+| Task YAML content | `cat .tasks/testing/<task-id>.yaml` | Status, bugs, attemptCount may have changed |
+| All tasks | `npx taskflow list` | Check if tasks exist in OTHER states (e.g., pending, processing) |
+
+**If you find a task in a state you didn't expect** (e.g., task was in testing but now in pending) → adapt to the NEW state. Do NOT continue old work.
+
+**If no tasks found in testing** → verify with `npx taskflow list` (no filter) to see ALL tasks across ALL states before concluding "nothing to do". A task might be in `pending/` or `processing/` waiting for executor.
+
+---
+
+## USE CLI COMMANDS ONLY — NEVER WRITE FILES BY HAND
+
+**CRITICAL:** Always use CLI commands for state transitions, locks, and status updates. NEVER write lock files, task YAML files, or run log files by hand.
+
+| Action | Correct CLI | WRONG (do NOT do this) |
+|--------|-------------|------------------------|
+| Acquire task lock | `npx taskflow lock <id> --agent tester` | Writing `.tasks/locks/task-<id>.lock` by hand |
+| Acquire infra lock | `npx taskflow lock --infra` | Writing `.tasks/locks/infra.lock` by hand |
+| Release lock | `npx taskflow unlock <id>` or `npx taskflow unlock` (infra) | `rm .tasks/locks/*.lock` |
+| Move task | `npx taskflow move <id> <state> --force` | `mv .tasks/testing/x.yaml .tasks/pending/` |
+| Update status | `npx taskflow status-update <id> ...` | Editing task YAML by hand |
+| List tasks | `npx taskflow list [state]` | `ls .tasks/testing/` (use CLI for reliability) |
+| Heartbeat | `npx taskflow heartbeat <id>` or `npx taskflow heartbeat --infra` | Editing lock file by hand |
+| Read task | `cat .tasks/<state>/<id>.yaml` | OK to read files directly (read-only) |
+
+**Why this matters:** Lock files written by hand will be corrupted (missing `sessionId`, `heartbeatAt` fields). The framework treats corrupted locks as stale → they get reaped by lock-releaser → your task gets stuck. Always use `npx taskflow lock` which writes the correct YAML format atomically.
+
+---
+
+## ANTI-LOOP GUARD — DO NOT REPEAT THE SAME ACTION
+
+Before picking up a task, check `attemptCount`, `bounceCount`, and `lastAgentAction` in the task YAML:
+
+### If bounceCount >= 2:
+The task has bounced 2+ times. The executor claims to have fixed bugs but they keep coming back. **Test every flow thoroughly.** Document every bug precisely in `bugs[]` — the same-bugs detector will auto-block if the same bugs appear again.
+
+### If bounceCount >= maxBounces - 1 (default: 2):
+This is the **last chance** before auto-block. Be extra careful. Every bug must have:
+- Exact flow name
+- Exact step where it failed
+- Expected vs actual behavior
+- Error messages / logs if available
+
+### If attemptCount >= 3:
+The task has been tested 3+ times with the same approach. **Do NOT repeat the same test approach.** Instead:
+1. Read `lastAgentSummary` to understand what was tested before
+2. Read `bugs[]` to understand what failed
+3. Choose a DIFFERENT testing approach (e.g., different test data, different assertions, different environment)
+4. If no different approach exists → block the task with a question explaining what was tried and what alternatives were considered
+
+### If attemptCount >= 5:
+Block the task automatically with reason: "Exceeded max testing attempts (5). Previous approaches: <list from run log summaries>"
+
+### If statusDescription says "Blocked" or "Recovered":
+Read the full context before proceeding. The task was previously blocked or recovered — understand why before trying again.
+
+### Example of reading previous attempts:
+```yaml
+# In the task YAML:
+statusDescription: "Test flow 'Instance budget CRUD' failed: no OpenClaw instances provisioned"
+lastAgentSummary: "Instance budget CRUD ❌ — No OpenClaw instances. Need openclaw:dev image rebuild first."
+attemptCount: 2
+```
+→ This tells you: "đã thử 2 lần, thiếu OpenClaw instances. Cần kiểm tra xem image đã build xong chưa trước khi test lại."
+
+---
+
+## STATUS UPDATES — UPDATE ON EVERY HEARTBEAT
+
+Every time you heartbeat the locks (every `config.heartbeat.intervalSeconds` seconds), you MUST also update the task's execution status fields. This is critical so that:
+- Subsequent loops know what has been tested and what failed
+- Other agents can see progress and avoid repeating work
+- The user can monitor what's happening
+
+Use the `status-update` command:
+
+```bash
+npx taskflow status-update <task-id> \
+  --status "Testing flow 2/3: 'Wrong password' — API returned 200 instead of 401" \
+  --summary "Flow 'Happy path' PASS. Flow 'Wrong password' FAIL: no error message shown" \
+  --action "test-flow-fail" \
+  --agent-type tester \
+  --agent-name "tester-session-1"
+```
+
+**When to update:**
+1. **On pickup** (Step 4): `--status "Picked up task, reading test flows" --action "test-start" --inc-attempt`
+2. **On each heartbeat** (Step 7c): `--status "<current test progress>" --action "test-progress"`
+3. **After each flow** (Step 7d): `--status "Flow '<name>' <PASS|FAIL>" --action "test-flow-pass"` or `"test-flow-fail"`
+4. **On completion** (Step 9): `--status "All flows done, passRatio: X" --action "test-done"` or `"test-fail"`
+5. **On block** (PENDING QUESTIONS section): `--status "Blocked: <reason>" --action "test-blocked"`
+
+**Why `--inc-attempt` matters:**
+- Each time you pickup a task, increment `attemptCount`
+- If `attemptCount > 3`, consider a different testing approach
+- Read `lastAgentSummary` and `statusDescription` to understand what was tried before
 
 ---
 
@@ -27,14 +176,16 @@ When you encounter a situation requiring user input during testing, do NOT block
 1. Continue testing other flows that don't need the answer
 2. Note down EVERY question/uncertainty you encounter
 3. Only when you cannot proceed further without user input:
-   a. Compile ALL questions into a single `pendingQuestions` array
-   b. For each question, set a `category` (e.g., "test-expectation", "environment", "bug-clarification")
-   c. Write a `context` explaining WHY you're asking (what failed, what was expected vs actual)
-   d. Group related questions by category
-   e. Set `previousState: testing` in the task YAML
-   f. Move task to `blocked/` ONCE
-   g. Write run log with summary listing all questions
-   h. Release locks and STOP
+    a. Compile ALL questions into a single `pendingQuestions` array
+    b. For each question, set a `category` (e.g., "test-expectation", "environment", "bug-clarification")
+    c. Write a `context` explaining WHY you're asking (what failed, what was expected vs actual)
+    d. Group related questions by category
+    e. Set `previousState: testing` in the task YAML
+    f. **Update status**: `npx taskflow status-update <task-id> --status "Blocked: <reason>" --summary "<all questions>" --action "test-blocked" --agent-type tester`
+    g. **Release locks first**: `npx taskflow unlock <task-id>` then `npx taskflow unlock` (infra) — critical! Locks must be released before moving.
+    h. **Move to blocked**: `npx taskflow move <task-id> blocked --force` — use `--force` because task was in `testing` (not in `allowMoveFromStates`)
+    i. Write run log with summary listing all questions
+    j. Notify the user
 
 Only block if you have at least one question. If you can resolve it yourself through investigation, do so.
 
@@ -64,7 +215,7 @@ pendingQuestions:
 
 ## 1. Objective
 
-Pick a task from `.tasks/testing/`, run its test flows, update results, and either move to review or return to processing with bug info.
+Pick a task from `.tasks/testing/`, run its test flows, update results, and either move to review (only if passRatio >= required) or return to pending with bug info via `test-fail`.
 
 ## 2. Inputs
 
@@ -120,10 +271,24 @@ If `config.gitFlow.enabled` is `false`, test on the current working tree.
 For each task file, check 2 locks:
 
 1. **Task lock**: `.tasks/locks/task-<id>.lock`
-   - If exists → skip this task
+   - If exists AND heartbeat is fresh → skip this task
+   - If exists BUT heartbeat is stale → previous tester crashed → release stale lock, acquire new lock
+   - If does not exist → task is available → select this task
 
 2. **Infra lock**: `.tasks/locks/infra.lock`
    - If exists → cannot run any tests → sleep 30s, retry
+
+**How to check if a lock is stale:**
+```bash
+# Read the lock file
+cat .tasks/locks/task-<id>.lock
+# Check heartbeatAt field — if older than 120s (default staleThreshold), it's stale
+```
+
+**How to release a stale lock:**
+```bash
+npx taskflow unlock <task-id>
+```
 
 ### Step 4: Acquire locks
 
@@ -216,7 +381,19 @@ npx taskflow heartbeat --infra
 
 > Note on flow-slug generation: when recording test results, the framework slugifies the flow name via `name.toLowerCase().replace(/[^a-z0-9]+/g, '-')`. This does NOT strip leading/trailing dashes — a flow named "  Hello World  " becomes slug `--hello-world--`. Keep your flow names clean (no leading/trailing spaces) to avoid surprising slug keys.
 
-#### 7d. Record results
+#### 7d. Record results — UPDATE STATUS AFTER EVERY FLOW
+
+**CRITICAL:** After running each flow, you MUST update both the task YAML `testResults` AND the `statusDescription` via CLI. This is essential so subsequent loops know which flows passed/failed without re-running them.
+
+**After each flow completes (pass or fail), update status:**
+```bash
+npx taskflow status-update <task-id> \
+  --status "Tested flow <N>/<total>: '<flow-name>' <PASS|FAIL>. passRatio so far: X/Y" \
+  --summary "Flow '<flow-name>' <result>. <brief description of what was tested>" \
+  --action "test-flow-pass|test-flow-fail" \
+  --agent-type tester \
+  --agent-name "<session-id>"
+```
 
 **If flow passes:**
 ```yaml
@@ -246,6 +423,12 @@ bugs:
     foundAt: "2026-07-07T11:00:00Z"
 ```
 
+**IMPORTANT — Skip already-passed flows:**
+- Read `testResults.flows.<flow-slug>.pass` before each flow
+- If `true` AND `config.test.skipPassedFlows == true` → **SKIP** this flow. Do NOT re-run it.
+- This prevents wasting time re-testing flows that already passed in previous loops.
+- Only run flows where `pass == false` or `lastRun == null`.
+
 ### Step 8: Calculate passRatio
 
 After running all unpassed flows:
@@ -256,18 +439,40 @@ passRatio = number of flows with pass=true / total number of flows
 
 ### Step 9: Transition state
 
-**If passRatio >= config.test.passRatioRequired** (all flows passed):
+**CRITICAL: NEVER move a task to review if passRatio < config.test.passRatioRequired.**
+The CLI `move` command enforces this — it will reject the move with an error. Do NOT use `--force` to bypass this guard.
+
+**If passRatio >= config.test.passRatioRequired** (all required flows passed):
+```bash
+# Release locks first!
+npx taskflow unlock <task-id>
+npx taskflow unlock   # infra lock
+
+# Then move to review (CLI will verify passRatio)
+npx taskflow move <task-id> review --force
 ```
-.tasks/testing/2026-07-07_login-flow_001.yaml
-→ .tasks/review/2026-07-07_login-flow_001.yaml
-```
+Reset `bounceCount` to 0 in the task YAML (test passed, bounce cycle broken).
+Update statusDescription: "All tests passed (passRatio: X.X), moved to review".
 
 **If passRatio < config.test.passRatioRequired** (at least 1 flow failed):
+```bash
+# Release locks first!
+npx taskflow unlock <task-id>
+npx taskflow unlock   # infra lock
+
+# Then report failure with bounce detection
+npx taskflow test-fail <task-id> --reason "<bug summary>" --agent-name "<session-id>"
 ```
-.tasks/testing/2026-07-07_login-flow_001.yaml
-→ .tasks/processing/2026-07-07_login-flow_001.yaml
-```
-The task goes back to processing with bug info so the executor knows what to fix.
+
+The `test-fail` command automatically:
+1. Increments `bounceCount`
+2. Detects if the same bugs are repeating (same-bugs detector)
+3. If `bounceCount >= maxBounces` (default 3) OR same bugs detected → auto-blocks the task
+4. Otherwise → moves to `pending/` for executor re-pickup
+
+**Before calling test-fail, check `bounceCount` in the task YAML:**
+- If `bounceCount >= maxBounces - 1` (default: 2) → this is the **last chance** before auto-block. Test as thoroughly as possible. Every bug must be documented precisely.
+- If `bounceCount >= maxBounces` → the task will be auto-blocked. Make sure `bugs[]` is comprehensive so the executor knows exactly what to fix.
 
 ### Step 10: Release locks
 
@@ -282,8 +487,9 @@ npx taskflow unlock               # release infra lock
 
 | From | To | When |
 |------|----|------|
-| testing | review | All flows pass (passRatio >= required) |
-| testing | processing | At least 1 flow fails (passRatio < required) |
+| testing | review | All flows pass (passRatio >= required) — use `npx taskflow move` |
+| testing | pending | At least 1 flow fails (passRatio < required) — use `npx taskflow test-fail` |
+| testing | blocked | Auto-blocked by `test-fail` when bounceCount >= maxBounces or same bugs detected |
 | testing | testing | Version change — release locks only, no file move |
 
 ## 5. Run log entries
@@ -293,5 +499,5 @@ After each action, write an entry to `.tasks/runs/sessions/<sessionId>.md` and `
 - `test-flow-pass` — each flow that passes. Summary: describe the steps executed and what was verified.
 - `test-flow-fail` — each flow that fails. Summary: describe what failed, at which step, and the expected vs actual behavior. Also add a `pendingQuestion` if you need user clarification.
 - `test-done` — when moved to review. Summary: describe overall test results, pass ratio, and what was verified.
-- `test-fail` — when moved back to processing. Summary: describe which flows failed and what bugs were recorded.
+- `test-fail` — when moved back to pending. Summary: describe which flows failed and what bugs were recorded.
 - `test-stale` — when version change detected. Summary: describe that version changed and you're releasing locks.

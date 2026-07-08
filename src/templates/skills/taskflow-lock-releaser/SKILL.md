@@ -1,6 +1,6 @@
 ---
 name: taskflow-lock-releaser
-description: Clean up stale locks. Check heartbeat, release stale task/infra locks, log results. For lock-releaser agents.
+description: Clean up stale locks. Check heartbeat, release stale task/infra locks, recover stuck tasks to pending. For lock-releaser agents.
 ---
 
 # taskflow-lock-releaser
@@ -11,7 +11,7 @@ Instructions for the agent cleaning up stale locks. The agent runs ONE check cyc
 
 ## 1. Objective
 
-Detect and release lock files where the acquiring session has stopped heartbeating (session crashed). Run one check cycle, then stop.
+Detect and release lock files where the acquiring session has stopped heartbeating (session crashed). After releasing a stale task lock, also move the task back to `pending/` so it can be re-picked up. Run one check cycle, then stop.
 
 ## 2. Inputs
 
@@ -32,12 +32,18 @@ For each lock file:
    - `elapsed > staleThresholdSeconds` → lock is stale → force release
 3. **Double-check**: Re-read the file, recalculate elapsed
 4. **Force release**: If still stale → delete the lock file. If no longer stale (agent heartbeated between checks) → **skip**.
-5. **Log**: Write to `.tasks/runs/releaser-log.md`
+5. **Recover task**: If this was a task lock (`task-<id>.lock`), check if the task is in `processing/` or `testing/`. If so, move it to `pending/` so it can be re-picked up:
+   ```bash
+   npx taskflow recover
+   ```
+   This will find the task (now with no lock) and move it to `pending/` with status "Recovered from stale lock".
+   **Note:** Recovery does NOT increment `bounceCount` — it's not a test failure, just a lock cleanup.
+6. **Log**: Write to `.tasks/runs/releaser-log.md`
 
 ### Usage with /loop
 
 ```bash
-/loop 60s use skill taskflow-lock-releaser to release stale locks
+/loop 60s use skill taskflow-lock-releaser to release stale locks and recover stuck tasks
 ```
 
 The external `/loop` mechanism handles restarting every 60 seconds. This skill only runs ONE check cycle per invocation.
@@ -60,7 +66,7 @@ Write to `.tasks/runs/releaser-log.md` with a summary of what was done:
   - Agent type: `<agentType>`
   - Last heartbeat: `<heartbeatAt>` (<elapsed>s ago)
   - Task version: `<taskVersion>`
-  - **Summary:** The executor session <sessionId> appears to have crashed. Last heartbeat was 180s ago. Released the task lock so other sessions can pick up the task.
+  - **Summary:** The executor session <sessionId> appears to have crashed. Last heartbeat was 180s ago. Released the task lock and recovered task to pending.
 ```
 
 If no stale locks were found, write:

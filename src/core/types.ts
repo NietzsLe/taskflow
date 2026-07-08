@@ -21,6 +21,15 @@ export interface TaskYaml {
   previousState?: TaskState;
   pendingQuestions?: PendingQuestion[];
   gitFlow?: TaskGitFlow;
+  // Execution status — updated by executor/tester agents on every heartbeat
+  statusDescription?: string;       // Current working status (e.g. "Building Docker image, step 3/5")
+  lastAgentSummary?: string;        // Natural language summary of last agent action
+  lastAgentType?: 'executor' | 'tester';  // Which agent type last touched this task
+  lastAgentAction?: string;         // Last action performed (pickup, implement-start, test-flow-pass, etc.)
+  lastAgentActionAt?: string;       // When the last action was performed
+  attemptCount?: number;            // How many times this task has been attempted (for retry detection)
+  bounceCount?: number;             // How many times task bounced testing → pending (auto-block at maxBounces)
+  previousBugs?: Bug[];             // Snapshot of bugs from previous test cycle (for same-bugs detector)
 }
 
 export interface PendingQuestion {
@@ -52,6 +61,7 @@ export interface VersionSnapshot {
   description: string;
   implementationNotes?: string;
   testFlows?: TestFlow[];
+  bounceCount?: number;
 }
 
 export interface Bug {

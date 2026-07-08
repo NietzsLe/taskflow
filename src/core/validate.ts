@@ -1,4 +1,4 @@
-import { TaskYaml, TaskState, LockFile, TestResults, TestFlow, PendingQuestion, Bug, VersionSnapshot } from './types';
+import { TaskYaml, TaskState, LockFile, TestResults, TestFlow, PendingQuestion, Bug, VersionSnapshot, VALID_STATES } from './types';
 
 export class ValidationError extends Error {
   constructor(message: string, public fieldPath?: string) {
@@ -111,10 +111,13 @@ function asVersionSnapshot(v: unknown, field: string, key: string): VersionSnaps
   if (Array.isArray(v.testFlows)) {
     snap.testFlows = v.testFlows.map((f, i) => asTestFlow(f, `${field}.${key}.testFlows`, i));
   }
+  if (v.bounceCount !== undefined) {
+    snap.bounceCount = asOptionalNumber(v.bounceCount, `${field}.${key}.bounceCount`);
+  }
   return snap;
 }
 
-const VALID_TASK_STATES: TaskState[] = ['defined', 'pending', 'processing', 'testing', 'review', 'done', 'blocked'];
+const VALID_TASK_STATES: TaskState[] = VALID_STATES;
 
 function asTaskState(v: unknown, field: string): TaskState | undefined {
   if (v === undefined || v === null) return undefined;
@@ -135,7 +138,7 @@ export function validateTaskYaml(raw: unknown): TaskYaml {
     name: asString(raw.name, 'name', { required: true }),
     createdAt: asString(raw.createdAt, 'createdAt', { required: true }),
     updatedAt: asString(raw.updatedAt, 'updatedAt', { required: true }),
-    version: asNumber(raw.version, 'version', { required: true, default: 1 }),
+    version: asNumber(raw.version, 'version', { default: 1 }),
     description: asString(raw.description, 'description', { default: '' }),
   };
 
@@ -182,6 +185,35 @@ export function validateTaskYaml(raw: unknown): TaskYaml {
     if (gf.mergeCommit !== undefined) taskGitFlow.mergeCommit = asOptionalString(gf.mergeCommit, 'gitFlow.mergeCommit');
     if (gf.baseBranchAtMerge !== undefined) taskGitFlow.baseBranchAtMerge = asOptionalString(gf.baseBranchAtMerge, 'gitFlow.baseBranchAtMerge');
     task.gitFlow = taskGitFlow;
+  }
+
+  // Execution status fields
+  if (raw.statusDescription !== undefined) {
+    task.statusDescription = asOptionalString(raw.statusDescription, 'statusDescription');
+  }
+  if (raw.lastAgentSummary !== undefined) {
+    task.lastAgentSummary = asOptionalString(raw.lastAgentSummary, 'lastAgentSummary');
+  }
+  if (raw.lastAgentType !== undefined) {
+    if (raw.lastAgentType !== 'executor' && raw.lastAgentType !== 'tester') {
+      throw new ValidationError("Field 'lastAgentType' must be 'executor' or 'tester' if present", 'lastAgentType');
+    }
+    task.lastAgentType = raw.lastAgentType;
+  }
+  if (raw.lastAgentAction !== undefined) {
+    task.lastAgentAction = asOptionalString(raw.lastAgentAction, 'lastAgentAction');
+  }
+  if (raw.lastAgentActionAt !== undefined) {
+    task.lastAgentActionAt = asOptionalString(raw.lastAgentActionAt, 'lastAgentActionAt');
+  }
+  if (raw.attemptCount !== undefined) {
+    task.attemptCount = asOptionalNumber(raw.attemptCount, 'attemptCount');
+  }
+  if (raw.bounceCount !== undefined) {
+    task.bounceCount = asOptionalNumber(raw.bounceCount, 'bounceCount');
+  }
+  if (Array.isArray(raw.previousBugs)) {
+    task.previousBugs = raw.previousBugs.map((b, i) => asBug(b, 'previousBugs', i));
   }
 
   return task;

@@ -63,9 +63,10 @@ function ensureDirs(taskDir: string): void {
 function formatEntryMarkdown(entry: RunLogEntry): string {
   let md = `### ${entry.timestamp} — ${entry.action}\n`;
   md += `- **Run ID:** ${entry.runId}\n`;
-  md += `- **Agent:** ${entry.agentType}\n`;
+  md += `- **Agent:** ${entry.agentType}${entry.agentName ? ` (${entry.agentName})` : ''}\n`;
   md += `- **Session:** ${entry.sessionId}\n`;
   md += `- **Task:** ${entry.taskId} (v${entry.taskVersion}, ${entry.taskState})\n`;
+  md += `- **Description:** ${entry.description}\n`;
   md += `- **Result:** ${entry.result}\n`;
   md += `- **Duration:** ${entry.duration}s\n`;
   if (entry.summary) {

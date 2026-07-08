@@ -1,7 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { TaskYaml } from '../core/types';
 import { getTaskFilePath, getTaskState } from '../core/state';
 import { appendRunLog } from '../core/runlog';
 import { validateTaskYaml } from '../core/validate';
@@ -53,6 +52,7 @@ export function answerQuestion(taskDir: string, taskId: string, questionId: stri
   question.answered = true;
   question.answer = answerText;
   question.answeredAt = new Date().toISOString();
+  task.statusDescription = `Question '${questionId}' answered`;
   task.updatedAt = new Date().toISOString();
 
   fs.writeFileSync(filePath, stringifyYaml(task), 'utf-8');

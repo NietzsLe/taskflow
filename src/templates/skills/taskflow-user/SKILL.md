@@ -27,7 +27,7 @@ defined ──(user move)──► pending ──(executor)──► processing 
                               │              (resolve)│  (resolve)            review    processing
                               │                       ▼       ▼                 │    (with bugs)
                               │                 processing  testing              │
-                              └──────────(user reject)─────────────────────►─── done
+                              └──────────(user move)──────────────────────►─── done
 ```
 
 ### 1.2 Transition Rules
@@ -46,6 +46,7 @@ The authoritative transition table lives in `src/core/state.ts` (`VALID_TRANSITI
 | processing | blocked | executor | Has questions, cannot proceed |
 | testing | review | tester | All flows pass (passRatio >= required) |
 | testing | processing | tester | Flow fails → update task with bug info |
+| testing | pending | tester | At least 1 flow fails (passRatio < required) — via `test-fail` command |
 | testing | blocked | tester | Has questions, cannot proceed |
 | blocked | processing | user | Questions resolved, return to processing |
 | blocked | testing | user | Questions resolved, return to testing |
@@ -160,7 +161,24 @@ pendingQuestions:
 
 The `taskflow-notifier` skill sends alerts through the configured `notification.channels`. The user resolves questions via `resolve-blocked` (see 2.7), which moves the task back to its `previousState` once all questions are answered.
 
-### 1.9 Available Skills
+### 1.9 Execution Status Fields
+
+Task YAML files may contain the following execution status fields, updated by agents on every heartbeat:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `statusDescription` | string? | Current working status (e.g. "Building Docker image, step 3/5") |
+| `lastAgentSummary` | string? | Natural language summary of last agent action |
+| `lastAgentType` | 'executor' \| 'tester'? | Which agent type last touched this task |
+| `lastAgentAction` | string? | Last action performed (pickup, implement-start, test-flow-pass, etc.) |
+| `lastAgentActionAt` | string? | When the last action was performed (ISO timestamp) |
+| `attemptCount` | number? | How many times this task has been attempted (for retry detection) |
+| `bounceCount` | number? | How many times task bounced testing → pending (auto-block at maxBounces) |
+| `previousBugs` | Bug[]? | Snapshot of bugs from previous test cycle (for same-bugs detector) |
+
+These fields are preserved across edits and state transitions. Use `npx taskflow status <id>` to view them.
+
+### 1.10 Available Skills
 
 Installed by `taskflow init` into `.agents/skills/` (see `src/init.ts`):
 
@@ -188,15 +206,12 @@ Each row shows: ID, name, version, and `passRatio` (when the task is in `testing
 
 ### 2.2 `add <name>` — Create a new task
 
-> **CRITICAL — Do not auto-move to pending:** The task is created in `defined/` and stays there until the user **explicitly** says "move to pending", "ready for executor", or equivalent. Never move a task to `pending` on the agent's own initiative — the executor loop may pick it up before the user finishes defining the description, implementation notes, and test flows.
-
 1. (Recommended) Brainstorm with the user to clarify the intended `description`, `implementationNotes`, and `testFlows`.
-2. Create the YAML file in `.tasks/defined/` named `YYYY-MM-DD_<slug>_<seq>.yaml` via `npx taskflow add <name>`.
+2. Create the YAML file in `.tasks/defined/` named `YYYY-MM-DD_<slug>_<seq>.yaml`.
 3. The task is created in `defined` state with `version: 1` and an **empty `description`** — it is NOT available for executor pickup and has no details yet.
 4. Follow up with `edit <id> -d "..." -i "..." -t '[...]'` to fill in the description / implementation notes / test flows.
-5. **STOP. Tell the user:** "Task `<id>` is defined in `defined/` and not yet available for the executor. When you're happy with the definition, say 'move <id> to pending' (or 'ready for executor') and I'll make it available."
-6. Only when the user explicitly confirms → run `npx taskflow move <id> pending` to make it available for executor pickup.
-7. A run-log entry with action `add` is written at creation, and action `move` is written when the task moves to pending.
+5. Then `move <id> pending` to make it available for executor pickup.
+6. A run-log entry with action `add` is written.
 
 ### 2.3 `edit <id>` — Edit a task
 
@@ -227,6 +242,12 @@ If no field actually changed (value equals the current value), the task is not m
 2. Move `review/` → `done/`.
 3. Write run-log action `approve`.
 
+**IMPORTANT:** The `approve` command requires the `--user` flag to prevent agents from auto-approving tasks:
+```bash
+npx taskflow approve <id> --user
+```
+Agents MUST NOT call this command. Only the user can approve tasks.
+
 ### 2.5 `reject <id>` — Reject a task
 
 ```
@@ -244,6 +265,10 @@ npx taskflow reject <id> [--reason <text>]
 - The current state must be in `config.user.allowMoveFromStates` (default: `defined`, `pending`, `blocked`). Otherwise the CLI rejects with "Move is only allowed from: ...".
 - The `from → to` pair must be a valid user transition in `VALID_TRANSITIONS` (see 1.2). For example `defined → pending` is allowed, but `defined → done` is not.
 - Common use: `move <id> pending` to make a `defined` task available for executor pickup; `move <id> processing|testing|pending` to unblock a resolved `blocked` task (though `resolve-blocked` is usually the better path).
+
+**Guards:**
+- Moving to `done` with `--force` requires `--user` flag: `npx taskflow move <id> done --force --user`. Agents MUST NOT move tasks to done.
+- Moving to `review` requires passRatio >= `config.test.passRatioRequired`. The CLI enforces this automatically — it will reject if passRatio is too low. Do NOT use `--force` to bypass this.
 
 ### 2.7 `resolve-blocked [id]` — Resolve blocked tasks
 
@@ -324,77 +349,52 @@ npx taskflow cleanup-worktrees
 
 This removes worktrees for tasks in `done`, `blocked`, or `archive` states, and also removes orphan worktrees (exist in git but no associated task). Tasks still in `processing` or `testing` are skipped.
 
-### 2.15 `test notif` — Test notification channels
+### 2.15 `status-update <id>` — Update execution status (agent use)
 
-When the user says **"test notifications"**, **"test notif"**, **"test notification channels"**, or asks to verify that notifications work:
+```bash
+npx taskflow status-update <id> \
+  --status "Đang build Docker image" \
+  --summary "Started build, gặp lỗi OOM" \
+  --action "implement-progress" \
+  --agent-type executor \
+  --inc-attempt
+```
 
-#### Procedure
+Updates `statusDescription`, `lastAgentSummary`, `lastAgentType`, `lastAgentAction`, `lastAgentActionAt`, and optionally increments `attemptCount`. Does NOT change task state. Writes a run log entry.
 
-1. Read `.tasks/config.yaml` → `notification` section.
-2. If `notification.enabled` is `false` → tell the user:
-   > "Notifications are disabled in config. Set `notification.enabled: true` in .tasks/config.yaml to enable."
-   Stop.
-3. Filter `notification.channels` to only those with `enabled: true`.
-4. If no active channels → tell the user:
-   > "No active notification channels. Edit .tasks/config.yaml and set `enabled: true` on the channels you want to use."
-   Stop.
-5. List the active channels to the user:
-   ```
-   Active notification channels:
-     1. [console] console-default
-     2. [webhook] slack-alerts
-     3. [email]  email-default
-   ```
-6. Tell the user: "I will send a test notification through each active channel. Please confirm whether you receive each one."
+### 2.16 `test-fail <id>` — Report test failure with bounce detection
 
-7. For each active channel (in order):
-   a. **Read the channel's `guide` field** — this tells you HOW to send. Follow it exactly.
-   b. **Announce:** "Sending test through **[<type>] <name>**..."
-   c. **Send the test message:**
-      ```
-      TaskFlow test — channel <type>/<name> at <ISO timestamp>
-      This is a test. No action needed.
-      ```
-      Channel-specific sending:
-      - **console** → print to terminal.
-      - **file** → append to the channel's `path`.
-      - **webhook** → HTTP POST to `url` using `format` (slack/discord/teams/generic). Use `curl`.
-      - **email** → send via SMTP (`smtpHost`, `smtpPort`, `smtpUser`, `smtpPassword`, `from`, `to`). Use `curl` with `smtp://` or equivalent.
-      - **custom** → follow the `guide` instructions exactly.
-   d. **Ask:** "Did you receive the test from **[<type>] <name>**? (yes/no)"
-   e. **Handle response:**
-      - **yes** → mark PASSED.
-      - **no** → troubleshoot:
-        1. Re-read the `guide` and check for missed steps.
-        2. Verify config fields (URL, SMTP creds, file path, env vars).
-        3. If `${ENV_VAR}` is unresolved → tell user which variable is missing.
-        4. Fix and **retry once**.
-        5. If still fails → suggest: "Channel **[<type>] <name>** failed. Set `enabled: false` to disable it, or fix the config. Disable now? (yes/no)"
-        If yes → edit `.tasks/config.yaml`, set `enabled: false`. If no → leave enabled.
+```bash
+npx taskflow test-fail <id> --reason "Flow 'login' failed: API returned 500" --agent-name "tester-1"
+```
 
-8. **Report summary:**
-   ```
-   Notification test results:
-     ✓ [console] console-default — passed
-     ✓ [file]   file-default — passed
-     ✗ [webhook] slack-alerts — failed (user chose to keep enabled)
-   
-   Summary: 2 passed, 1 failed.
-   ```
+Called by the tester when tests fail. Automatically:
+1. Increments `bounceCount`
+2. Detects if same bugs are repeating (same-bugs detector)
+3. If `bounceCount >= maxBounces` (default 3) OR same bugs detected → auto-blocks the task
+4. Otherwise → moves to `pending/` for executor re-pickup
 
-9. If any channel failed and was not disabled → warn:
-   > "Warning: <channel> is enabled but did not pass. It may silently fail when a task is blocked. Run `test notif` again after fixing the config."
+**Bounce detection prevents infinite ping-pong** between testing and pending. After 3 bounces (or same bugs detected twice), the task is auto-blocked with a detailed reason.
 
-#### Adding a new channel (optional)
+### 2.17 `recover [--dry-run]` — Recover stuck tasks
 
-If the user asks to add a new notification channel:
+```bash
+npx taskflow recover          # actually recover
+npx taskflow recover --dry-run # list what would be recovered
+```
 
-1. Ask which type: webhook, email, or custom.
-2. Ask for a `name` to identify this instance (required when there are multiple instances of the same type).
-3. Help the user fill in the config fields per the channel type's guide in the default config template.
-4. Set `enabled: true`.
-5. Write the new channel into `.tasks/config.yaml` under `notification.channels`.
-6. Test the new channel using the same procedure as step 7 above.
+Finds tasks in `processing/` or `testing/` with no lock file or stale lock, moves them to `pending/`. Updates `statusDescription` to "Recovered from <state>: <reason>".
+
+### 2.18 `doctor [--fix]` — Health check and auto-repair
+
+```bash
+npx taskflow doctor       # check only
+npx taskflow doctor --fix # check + fix issues
+```
+
+When `--fix` is used:
+- Recovers stuck tasks (same as `recover`)
+- Releases orphan locks (locks for tasks not in processing/testing)
 
 ---
 
@@ -402,7 +402,6 @@ If the user asks to add a new notification channel:
 
 | Rule | Description |
 |------|-------------|
-| **Never auto-move to pending** | Tasks stay in `defined/` until the user explicitly says "move to pending" / "ready for executor". The agent must never move a task to `pending` on its own — the executor loop may pick it up before the user finishes defining it. |
 | **Only edit defined/pending in place** | Tasks in processing/testing must go through the versioning flow (snapshot + move to pending). |
 | **Versioning is mandatory for active tasks** | When editing a processing/testing task, the old version is snapshotted. |
 | **Reset testResults on version change** | A version bump always resets `testResults` (and clears `bugs`/`blockedReason`). |

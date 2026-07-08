@@ -51,6 +51,9 @@ If no files found → **STOP. No blocked tasks.**
    - `id`, `name`, `description`, `implementationNotes`
    - `previousState` (where the task was before being blocked)
    - `pendingQuestions` (array of questions with `category`, `question`, `context`)
+   - `statusDescription` (what the agent was doing when it got blocked — provides important context)
+   - `lastAgentSummary` (natural language summary of the last agent's work before blocking)
+   - `attemptCount`, `bounceCount` (how many times this task has been attempted/bounced)
 
 2. Read recent run log from `.tasks/runs/tasks/<taskId>.md` (last 10 entries)
 
@@ -87,7 +90,7 @@ For each channel where `enabled: true`:
 
 > **Multiple instances:** A channel type can have multiple instances (e.g. two webhook channels — one for Slack, one for Discord). Each has an optional `name` field. When logging or reporting, include the `name` (or `type` if `name` is absent) so the user can tell which instance was used. Send through ALL enabled channels — do not pick just one.
 
-> **Failed channels:** If a channel fails to send (network error, bad credentials, etc.), log the failure and continue with the next enabled channel. Do not abort the entire notification cycle because one channel failed. A channel that was not tested during init (see taskflow-init Step 3.5) or via `test notif` (see taskflow-user Section 2.15) may silently fail — always log the result.
+> **Failed channels:** If a channel fails to send (network error, bad credentials, etc.), log the failure and continue with the next enabled channel. Do not abort the entire notification cycle because one channel failed. A channel that was not tested during init or via `test notif` may silently fail — always log the result.
 
 ### Step 5: Log
 

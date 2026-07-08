@@ -23,6 +23,7 @@ test:
   infraLockRequired: true
   skipPassedFlows: true
   warnNoBrowserMCP: true
+  maxBounces: 3
 
 browserMCP:
   - name: "playwriter"

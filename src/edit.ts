@@ -1,9 +1,9 @@
 import * as fs from 'fs';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { TaskYaml } from './core/types';
 import { getTaskState, getTaskFilePath, moveTask, TaskLockedError } from './core/state';
 import { appendRunLog } from './core/runlog';
-import { isTaskLocked } from './core/lock';
+import { isTaskLocked, isLockStale, getTaskLockPath } from './core/lock';
+import { loadConfig } from './core/config';
 import { validateTaskYaml } from './core/validate';
 
 export function editTask(
@@ -23,8 +23,15 @@ export function editTask(
   }
 
   // A3: check lock before editing (unless --force)
+  // Stale locks (heartbeat expired) are treated as unlocked
   if (!options?.force && isTaskLocked(taskDir, taskId)) {
-    throw new TaskLockedError(taskId);
+    const config = loadConfig(taskDir);
+    const lockPath = getTaskLockPath(taskDir, taskId);
+    if (!isLockStale(lockPath, config.heartbeat.staleThresholdSeconds)) {
+      throw new TaskLockedError(taskId);
+    }
+    // Lock is stale — release it so the edit can proceed
+    try { fs.unlinkSync(lockPath); } catch {}
   }
 
   const raw = fs.readFileSync(filePath, 'utf-8');
@@ -60,6 +67,7 @@ export function editTask(
         description: task.description,
         implementationNotes: task.implementationNotes,
         testFlows: task.testFlows ? task.testFlows.map(f => ({ ...f })) : undefined,
+        bounceCount: task.bounceCount,
       };
     }
   }
@@ -70,6 +78,10 @@ export function editTask(
 
   task.version += 1;
   task.updatedAt = new Date().toISOString();
+
+  // Reset bounceCount on new version — this is a fresh attempt
+  task.bounceCount = 0;
+  task.previousBugs = undefined;
 
   if (task.testFlows && task.testFlows.length > 0) {
     const flows: Record<string, { pass: boolean; lastRun: string | null }> = {};
@@ -84,8 +96,10 @@ export function editTask(
     };
   }
 
-  delete task.bugs;
-  delete task.blockedReason;
+  // Preserve bugs and blockedReason — they contain context about what went wrong.
+  // Previous behavior deleted them, but that loses valuable information for the
+  // next agent session. Only clear blockedReason if the edit is a new description.
+  // (Keep bugs[] and blockedReason intact.)
 
   fs.writeFileSync(filePath, stringifyYaml(task), 'utf-8');
 

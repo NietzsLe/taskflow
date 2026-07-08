@@ -1,6 +1,6 @@
 ---
 name: taskflow-executor
-description: Pick pending tasks, implement, acquire lock, heartbeat, move to testing. For executor agents.
+description: Pick pending or abandoned processing tasks, implement, acquire lock, heartbeat, move to testing. For executor agents.
 ---
 
 # taskflow-executor
@@ -11,12 +11,171 @@ Instructions for the agent executing a task. The agent reads this skill to know 
 
 ## STRICT BOUNDARIES — READ BEFORE DOING ANYTHING
 
-- Executor ONLY reads from `.tasks/pending/`
+- Executor reads from BOTH `.tasks/pending/` AND `.tasks/processing/`
 - Executor ONLY moves tasks: `pending → processing → testing`
 - Executor MUST NEVER touch `.tasks/defined/`, `.tasks/testing/`, `.tasks/review/`, `.tasks/done/`
 - Executor MUST NEVER move a task to `review` or `done` — that's Tester/User only
-- If no tasks in `pending/` → **STOP immediately. Do NOT create new tasks.**
+- Executor MUST NEVER call `npx taskflow approve` — that's User only. The `approve` command requires `--user` flag.
+- Executor MUST NEVER use `--force` to move a task to `done` — the CLI will reject this without `--user` flag.
+- If no tasks in `pending/` or `processing/` → **STOP immediately. Do NOT create new tasks.**
 - The `/loop` mechanism will restart to retry later.
+
+---
+
+## FRESH START PROTOCOL — EXECUTE FIRST ON EVERY LOOP
+
+Before doing ANYTHING else, execute these steps IN ORDER. Do NOT skip any step.
+
+### Step 0a: Recover stuck tasks first
+```bash
+npx taskflow recover --dry-run
+```
+If there are stuck tasks (in processing/testing with no lock), recover them:
+```bash
+npx taskflow recover
+```
+
+### Step 0b: List ALL tasks across ALL states
+```bash
+npx taskflow list
+```
+This gives you the FULL picture of what exists. Do NOT skip this step.
+
+### Step 0c: List your target states
+```bash
+npx taskflow list pending
+npx taskflow list processing
+```
+
+### Step 0d: For each task found, read the FULL YAML
+```bash
+cat .tasks/pending/<task-id>.yaml
+# OR
+cat .tasks/processing/<task-id>.yaml
+```
+Read these fields to understand what has been done:
+- `statusDescription` — what the last agent was doing
+- `lastAgentSummary` — what the last agent reported
+- `attemptCount` — how many times this has been tried
+- `bugs[]` — what bugs were found (if returned from tester)
+- `testResults` — what test results exist (if returned from tester)
+
+### Step 0e: Only NOW proceed to Step 1
+
+---
+
+## RE-VERIFY ON EVERY LOOP — MANDATORY
+
+**CRITICAL:** Do NOT trust context from previous sessions. On EVERY loop iteration, you MUST re-verify the actual filesystem state.
+
+| What to check | How to check | Why |
+|--------------|--------------|-----|
+| Tasks in pending | `npx taskflow list pending` | Tasks may have been added/moved since last session |
+| Tasks in processing | `npx taskflow list processing` | Tasks may have been recovered or moved |
+| Lock files | `ls .tasks/locks/` | Locks may have been released or reaped |
+| Lock file validity | `cat .tasks/locks/task-<id>.lock` | Must be valid YAML with `sessionId`, `heartbeatAt` |
+| Task YAML content | `cat .tasks/<state>/<task-id>.yaml` | Status, bugs, attemptCount may have changed |
+| All tasks | `npx taskflow list` | Check if tasks exist in OTHER states (e.g., testing, review) |
+
+**If you find a task in a state you didn't expect** (e.g., task was in processing but now in testing) → adapt to the NEW state. Do NOT continue old work.
+
+**If no tasks found in your target states** → verify with `npx taskflow list` (no filter) to see ALL tasks across ALL states before concluding "nothing to do". A task might be in `testing/` or `review/` waiting for another agent.
+
+---
+
+## USE CLI COMMANDS ONLY — NEVER WRITE FILES BY HAND
+
+**CRITICAL:** Always use CLI commands for state transitions, locks, and status updates. NEVER write lock files, task YAML files, or run log files by hand.
+
+| Action | Correct CLI | WRONG (do NOT do this) |
+|--------|-------------|------------------------|
+| Acquire lock | `npx taskflow lock <id> --agent executor` | Writing `.tasks/locks/task-<id>.lock` by hand |
+| Release lock | `npx taskflow unlock <id>` | `rm .tasks/locks/task-<id>.lock` |
+| Move task | `npx taskflow move <id> <state> --force` | `mv .tasks/processing/x.yaml .tasks/testing/` |
+| Update status | `npx taskflow status-update <id> ...` | Editing task YAML by hand |
+| List tasks | `npx taskflow list [state]` | `ls .tasks/testing/` (use CLI for reliability) |
+| Heartbeat | `npx taskflow heartbeat <id>` | Editing lock file by hand |
+| Read task | `cat .tasks/<state>/<id>.yaml` | OK to read files directly (read-only) |
+
+**Why this matters:** Lock files written by hand will be corrupted (missing `sessionId`, `heartbeatAt` fields). The framework treats corrupted locks as stale → they get reaped by lock-releaser → your task gets stuck. Always use `npx taskflow lock` which writes the correct YAML format atomically.
+
+---
+
+## ANTI-LOOP GUARD — DO NOT REPEAT THE SAME ACTION
+
+Before picking up a task, check `attemptCount`, `bounceCount`, and `lastAgentAction` in the task YAML:
+
+### If bounceCount >= 2:
+The task has bounced between testing and pending 2+ times. The tester found bugs each time. **Read `bugs[]` and `previousBugs[]` carefully.** Fix ALL bugs triệt để before moving to testing again. Do NOT move to testing unless you are confident ALL bugs are fixed.
+
+### If bounceCount >= maxBounces - 1 (default: 2):
+This is the **last chance** before auto-block. Read every bug, read `lastAgentSummary`, read run log. If you cannot fix ALL bugs, block the task yourself instead of moving to testing and getting auto-blocked.
+
+### If attemptCount >= 3:
+The task has been tried 3+ times with the same approach. **Do NOT repeat the same action.** Instead:
+1. Read `lastAgentSummary` to understand what was tried before
+2. Read `bugs[]` to understand what failed
+3. Choose a DIFFERENT approach
+4. If no different approach exists → block the task with a question explaining what was tried and what alternatives were considered
+
+### If attemptCount >= 5:
+Block the task automatically with reason: "Exceeded max attempts (5). Previous approaches: <list from run log summaries>"
+
+### If statusDescription says "Blocked" or "Recovered":
+Read the full context before proceeding. The task was previously blocked or recovered — understand why before trying again.
+
+### Example of reading previous attempts:
+```yaml
+# In the task YAML:
+statusDescription: "Gặp lỗi OOM khi build Docker image, đã thử tăng NODE_OPTIONS lên 4096"
+lastAgentSummary: "Build thất bại ở step pnpm install do thiếu RAM. Đã thử retry 2 lần."
+attemptCount: 2
+```
+→ This tells you: "đã thử 2 lần, bị OOM. Lần này cần approach khác (giảm workers, dùng swap, build từng phần)."
+
+---
+
+## STATUS UPDATES — UPDATE ON EVERY HEARTBEAT
+
+Every time you heartbeat the lock (every `config.heartbeat.intervalSeconds` seconds), you MUST also update the task's execution status fields. This is critical so that:
+- Subsequent loops know what has been done and can take different approaches
+- Other agents can see progress and avoid repeating work
+- The user can monitor what's happening
+
+Use the `status-update` command:
+
+```bash
+npx taskflow status-update <task-id> \
+  --status "Đang implement feature X, step 3/5: building Docker image" \
+  --summary "Implemented auth module, đang test integration. Gặp lỗi OOM ở pnpm install, retry với NODE_OPTIONS=--max-old-space-size=4096" \
+  --action "implement-progress" \
+  --agent-type executor \
+  --agent-name "executor-session-1"
+```
+
+**When to update:**
+1. **On pickup** (Step 4): `--status "Picked up task, reading description and implementation notes" --action "pickup" --inc-attempt`
+2. **On each heartbeat** (Step 6): `--status "<current progress description>" --action "implement-progress"`
+3. **On completion** (Step 7): `--status "Implementation complete, moving to testing" --action "implement-done"`
+4. **On block** (Step 8): `--status "Blocked: <reason>" --action "implement-blocked"`
+5. **On bug fix** (Step 8.5): `--status "Fixing bug: <bug description>" --action "implement-bugfix"`
+
+**Why `--inc-attempt` matters:**
+- Each time you pickup a task, increment `attemptCount`
+- If `attemptCount > 3`, consider a different approach — the previous attempts failed
+- Read `lastAgentSummary` and `statusDescription` to understand what was tried before
+
+**Example of reading previous status:**
+```yaml
+# In the task YAML, you'll find:
+statusDescription: "Gặp lỗi OOM khi build Docker image, đã thử tăng NODE_OPTIONS lên 4096"
+lastAgentSummary: "Build thất bại ở step pnpm install do thiếu RAM. Đã thử retry 2 lần."
+lastAgentType: "executor"
+lastAgentAction: "implement-blocked"
+attemptCount: 2
+```
+
+This tells you: "đã thử 2 lần, bị OOM. Lần này cần approach khác (ví dụ: giảm workers, dùng swap, build từng phần)."
 
 ---
 
@@ -27,14 +186,16 @@ When you encounter a situation requiring user input, do NOT block immediately fo
 1. Continue working on parts that don't need the answer
 2. Note down EVERY question/uncertainty you encounter
 3. Only when you cannot proceed further without user input:
-   a. Compile ALL questions into a single `pendingQuestions` array
-   b. For each question, set a `category` (e.g., "implementation", "environment", "config")
-   c. Write a `context` explaining WHY you're asking (what you found, what's missing)
-   d. Group related questions by category
-   e. Set `previousState: processing` in the task YAML
-   f. Move task to `blocked/` ONCE
-   g. Write run log with summary listing all questions
-   h. Release lock and STOP
+    a. Compile ALL questions into a single `pendingQuestions` array
+    b. For each question, set a `category` (e.g., "implementation", "environment", "config")
+    c. Write a `context` explaining WHY you're asking (what you found, what's missing)
+    d. Group related questions by category
+    e. Set `previousState: processing` in the task YAML
+    f. **Update status**: `npx taskflow status-update <task-id> --status "Blocked: <reason>" --summary "<all questions>" --action "implement-blocked" --agent-type executor`
+    g. **Release lock first**: `npx taskflow unlock <task-id>` — this is critical! Lock must be released before moving.
+    h. **Move to blocked**: `npx taskflow move <task-id> blocked --force` — use `--force` because task was in `processing`
+    i. Write run log with summary listing all questions
+    j. Notify the user
 
 Only block if you have at least one question. If you can resolve it yourself through codebase investigation, do so.
 
@@ -58,7 +219,7 @@ Every run log entry MUST include a `summary` field — a natural language descri
 
 ## 1. Objective
 
-Pick a task from `.tasks/pending/`, implement according to the instructions, and move it to testing.
+Pick a task from `.tasks/pending/` or abandoned tasks from `.tasks/processing/`, implement according to the instructions, and move it to testing.
 
 ## 2. Inputs
 
@@ -101,17 +262,46 @@ Read the following fields from `config.executor`:
 
 **Note:** These custom instructions/skills/tools do not replace the framework — they supplement agent behavior while executing the task. The framework remains responsible for orchestration (lock, state, run log, versioning).
 
-### Step 2: List pending tasks
+### Step 2: List available tasks
 
-Read all `.yaml` files in `.tasks/pending/`.
+Read all `.yaml` files in BOTH `.tasks/pending/` AND `.tasks/processing/`.
 
-File format: `.tasks/pending/YYYY-MM-DD_<task-name>_<seq>.yaml`
+File format: `.tasks/pending/YYYY-MM-DD_<task-name>_<seq>.yaml` or `.tasks/processing/YYYY-MM-DD_<task-name>_<seq>.yaml`
+
+**Priority order:**
+1. First, check `.tasks/processing/` — tasks here were started by a previous executor session but abandoned (e.g., agent crash, stale lock, or returned from tester with bugs). These have higher priority because they already have partial work.
+2. Then, check `.tasks/pending/` — fresh tasks ready for pickup.
+
+**How to identify abandoned processing tasks:**
+- A task in `processing/` whose lock file `.tasks/locks/task-<id>.lock` is **stale** (heartbeat older than `config.heartbeat.staleThresholdSeconds`) → previous executor crashed or disconnected
+- A task in `processing/` with **no lock file** → lock was released but task wasn't moved (e.g., version change, or interrupted transition)
+- A task in `processing/` with `bugs[]` array populated → returned from tester, needs bug fixes
 
 ### Step 3: Check lock for each task
 
 For each task file, check `.tasks/locks/task-<id>.lock`:
+
+**For tasks in `pending/`:**
 - If the lock file exists → another session is processing this task → **skip**
 - If the lock file does not exist → task is available → select this task
+
+**For tasks in `processing/`:**
+- If the lock file exists AND heartbeat is fresh (within `config.heartbeat.staleThresholdSeconds`) → another session is actively working → **skip**
+- If the lock file exists BUT heartbeat is stale (older than `config.heartbeat.staleThresholdSeconds`) → previous executor crashed → **take over**: release stale lock first, then acquire new lock
+- If the lock file does not exist → task was abandoned (e.g., version change, interrupted transition) → **take over**: acquire new lock
+- If `bugs[]` array is populated → returned from tester, needs bug fixes → **take over**: acquire new lock
+
+**How to check if a lock is stale:**
+```bash
+# Read the lock file
+cat .tasks/locks/task-<id>.lock
+# Check heartbeatAt field — if older than 120s (default staleThreshold), it's stale
+```
+
+**How to release a stale lock:**
+```bash
+npx taskflow unlock <task-id>
+```
 
 **Lock file format (YAML):**
 ```yaml
@@ -138,14 +328,20 @@ If the command exits 1 ("already locked") → another session has the task → p
 
 ### Step 5: Read task YAML
 
-Read the task file from `.tasks/pending/<filename>.yaml`.
+Read the task file from `.tasks/pending/<filename>.yaml` or `.tasks/processing/<filename>.yaml`.
 
 Fields to read:
 - `description` (string): What the task does
 - `implementationNotes` (string, optional): Detailed implementation instructions
 - `version` (number): Current version — remember this for version change detection
+- `bugs[]` (array, only for processing tasks): Bugs reported by tester — read these to understand what failed
+- `blockedReason` (string, only for processing tasks): Why the task was blocked previously
+- `pendingQuestions[]` (array, only for processing tasks): Previously asked questions — check if any are answered
 
-**Do not read** `testFlows` or `testResults` — those are for the tester.
+**For tasks picked up from `processing/`:**
+- If `bugs[]` is not empty → follow Step 8.5 (Fix bugs from tester)
+- If `pendingQuestions[]` has answered questions → incorporate the answers into your implementation
+- If the task was previously in `processing` and the lock was stale → check `implementationNotes` and any partial work to understand where to continue
 
 ### Step 5.5: Create worktree (git flow only — if config.gitFlow.enabled)
 
@@ -195,13 +391,13 @@ Commit after each file or logical unit completed — do NOT wait until the end. 
 
 When implementation is done:
 
-1. **Move to processing**: Move file `pending/` → `processing/`. Write run log action `implement-start`.
+1. **Move to processing**: `npx taskflow move <task-id> processing --force` (if picked up from pending). Write run log action `implement-start`.
 2. **Merge worktree into base** (git flow only): If `config.gitFlow.enabled`, merge the feature branch into `config.gitFlow.baseBranch` so the tester can test it:
    ```bash
    npx taskflow merge <task-id>
    ```
    This records the merge commit SHA in the task YAML (`gitFlow.mergeCommit`). If the merge fails (conflict), resolve it manually, then re-run `npx taskflow merge <task-id>`.
-3. **Move to testing**: Move file `processing/` → `testing/`. Reset `testResults` in the task YAML. Write run log action `implement-done`.
+3. **Move to testing**: `npx taskflow move <task-id> testing --force`. Reset `testResults` in the task YAML. Write run log action `implement-done`.
 4. **Release lock**: Run `npx taskflow unlock <task-id>` to delete `.tasks/locks/task-<id>.lock`.
 
 > Note: Steps 7.1 and 7.3 are two separate state transitions (`pending → processing`, then `processing → testing`), not a single combined move.
@@ -210,26 +406,31 @@ When implementation is done:
 
 If an issue cannot be resolved:
 
-1. Write `blockedReason` into the task YAML
-2. Write run log action `implement-blocked`
-3. Release lock
-4. Notify the user
+1. **Update status**: `npx taskflow status-update <task-id> --status "Blocked: <reason>" --summary "<all questions>" --action "implement-blocked" --agent-type executor`
+2. Write `blockedReason` and `pendingQuestions` into the task YAML
+3. Set `previousState: processing` in the task YAML
+4. **Release lock first**: `npx taskflow unlock <task-id>` — this is critical! The lock must be released before moving.
+5. **Move to blocked**: `npx taskflow move <task-id> blocked --force` — use `--force` because the task was in `processing` (not in `allowMoveFromStates`)
+6. Write run log action `implement-blocked` with summary listing all questions
+7. Notify the user
 
 ### Step 8.5: Fix bugs from tester (when task returns from testing → processing)
 
 When the tester reports bugs and moves the task back to `processing`:
 
-1. **Revert the merge** (git flow only): Remove your merged code from the base branch so the tester doesn't test broken code:
+1. **Read `bugs[]` in the task YAML** to understand what failed.
+2. **Read `lastAgentSummary` and `attemptCount`** — if `attemptCount > 3`, consider a different approach since previous attempts failed.
+3. **Update status**: `npx taskflow status-update <task-id> --status "Fixing bug: <bug description>" --action "implement-bugfix" --agent-type executor --inc-attempt`
+4. **Revert the merge** (git flow only): Remove your merged code from the base branch so the tester doesn't test broken code:
    ```bash
    npx taskflow revert-merge <task-id>
    ```
-2. **Read `bugs[]` in the task YAML** to understand what failed.
-3. **Fix in the worktree** (cd back into `.worktrees/<task-id>`), committing frequently.
-4. **Re-merge** after fixes:
+5. **Fix in the worktree** (cd back into `.worktrees/<task-id>`), committing frequently.
+6. **Re-merge** after fixes:
    ```bash
    npx taskflow merge <task-id>
    ```
-5. **Move back to testing**: Move `processing/` → `testing/`. Write run log action `implement-done`.
+7. **Move back to testing**: Move `processing/` → `testing/`. Write run log action `implement-done`.
 
 ### Step 9: Worktree cleanup (when task is approved)
 
@@ -243,7 +444,7 @@ npx taskflow cleanup-worktrees
 | From | To | When |
 |------|----|------|
 | pending | processing | Starting implementation (Step 7.1) |
-| processing | testing | Implementation complete (Step 7.2) |
+| processing | testing | Implementation complete (Step 7.3) |
 | processing | pending | Version change (Step 6.2) — release lock only, no file move |
 | processing | blocked | Has questions, cannot proceed (Step 8) |
 

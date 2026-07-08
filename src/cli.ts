@@ -27,6 +27,9 @@ import { mergeTaskBranch } from './commands/merge';
 import { revertTaskMerge } from './commands/revert-merge';
 import { commitTask } from './commands/commit';
 import { cleanupWorktrees } from './commands/cleanup-worktrees';
+import { recoverStuckTasks } from './commands/recover';
+import { updateTaskStatus } from './commands/status-update';
+import { testFail, resetBounceCount } from './commands/test-fail';
 
 const program = new Command();
 
@@ -40,7 +43,7 @@ function logUserAction(
   taskId: string,
   taskState: string,
   description: string,
-  extra?: { summary?: string; details?: string | null; error?: string | null; result?: 'success' | 'failure' | 'stale' | 'skipped'; taskVersion?: number }
+  extra?: { summary?: string; details?: string | null; error?: string | null; result?: 'success' | 'failure' | 'stale' | 'skipped'; taskVersion?: number; startTime?: number }
 ): void {
   let taskVersion = extra?.taskVersion ?? 0;
   if (extra?.taskVersion === undefined) {
@@ -53,6 +56,7 @@ function logUserAction(
       } catch {}
     }
   }
+  const duration = extra?.startTime ? Math.round((Date.now() - extra.startTime) / 1000) : 0;
   appendRunLog(taskDir, {
     timestamp: new Date().toISOString(),
     agentType: 'user',
@@ -65,7 +69,7 @@ function logUserAction(
     description,
     summary: extra?.summary,
     result: extra?.result ?? 'success',
-    duration: 0,
+    duration,
     error: extra?.error ?? null,
     details: extra?.details ?? null,
   });
@@ -233,6 +237,29 @@ program
     if (task.testResults) {
       console.log(`passRatio: ${task.testResults.passRatio}`);
     }
+    // Execution status fields
+    if (task.statusDescription) {
+      console.log(`Status: ${task.statusDescription}`);
+    }
+    if (task.lastAgentSummary) {
+      const s = task.lastAgentSummary;
+      const displayS = (options.full || s.length <= 200) ? s : s.slice(0, 200) + '...';
+      console.log(`Last summary: ${displayS}`);
+    }
+    if (task.lastAgentAction) {
+      console.log(`Last action: ${task.lastAgentAction} at ${task.lastAgentActionAt || '?'}`);
+    }
+    if (task.lastAgentType) {
+      console.log(`Last agent: ${task.lastAgentType}`);
+    }
+    if (task.attemptCount !== undefined && task.attemptCount > 0) {
+      console.log(`Attempts: ${task.attemptCount}`);
+    }
+    if (task.bounceCount !== undefined && task.bounceCount > 0) {
+      const config = loadConfig(taskDir);
+      const maxB = config.test.maxBounces ?? 3;
+      console.log(`Bounces: ${task.bounceCount}/${maxB}`);
+    }
     if (lock) {
       console.log(`Locked by: ${lock.sessionId} (${lock.agentType})`);
       console.log(`Heartbeat: ${lock.heartbeatAt}`);
@@ -252,15 +279,47 @@ program
 
 program
   .command('move <id> <state>')
-  .description('Move a task to another state (from defined or pending only by default)')
+  .description('Move a task to another state (from defined, pending, or blocked only by default)')
   .option('--force', 'Override lock check and state transition rules (use with caution)')
-  .action((id: string, state: string, options: { force?: boolean }) => {
+  .option('--user', 'Confirm this is a user action (required when --force and target is "done")')
+  .action((id: string, state: string, options: { force?: boolean; user?: boolean }) => {
     const taskDir = path.join(process.cwd(), '.tasks');
     const config = loadConfig(taskDir);
     const currentState = getTaskState(taskDir, id);
     if (!currentState) {
       console.error(`Task '${id}' not found.`);
       process.exit(1);
+    }
+    // Guard: moving to 'done' with --force requires --user flag
+    // This prevents agents from auto-approving tasks
+    if (options.force && state === 'done' && !options.user) {
+      console.error("Moving a task to 'done' with --force requires the --user flag.");
+      console.error("Agents MUST NOT move tasks to done — only the user can approve tasks.");
+      console.error("If you are a user, run: npx taskflow move <id> done --force --user");
+      process.exit(1);
+    }
+    // Guard: moving to 'review' requires passRatio >= passRatioRequired
+    // This prevents testers from moving untested/failed tasks to review
+    // --force bypasses this, but agents should NOT use --force for this purpose
+    if (state === 'review' && !options.force) {
+      const filePath = getTaskFilePath(taskDir, id);
+      if (filePath) {
+        try {
+          const raw = fs.readFileSync(filePath, 'utf-8');
+          const task = validateTaskYaml(parseYaml(raw));
+          const passRatio = task.testResults?.passRatio ?? 0;
+          const required = config.test.passRatioRequired;
+          if (passRatio < required) {
+            console.error(`Task '${id}' cannot be moved to review: passRatio ${passRatio} < required ${required}.`);
+            console.error(`Run tests first. If tests fail, use 'npx taskflow test-fail <id>' instead.`);
+            console.error('Use --force to override (NOT recommended for agents — this allows untested tasks into review).');
+            process.exit(1);
+          }
+        } catch (e: any) {
+          console.error(`Cannot read task '${id}': ${e.message}`);
+          process.exit(1);
+        }
+      }
     }
     if (!options.force) {
       if (config.user.allowMoveFromStates.length > 0 && !config.user.allowMoveFromStates.includes(currentState)) {
@@ -282,7 +341,7 @@ program
     }
     try {
       if (moveTask(taskDir, id, state as TaskState, { force: options.force })) {
-        logUserAction(taskDir, 'move', id, currentState, `User moved task '${id}' from ${currentState} to ${state}${options.force ? ' (forced)' : ''}`);
+        logUserAction(taskDir, 'move', id, currentState, `User moved task '${id}' from ${currentState} to ${state}${options.force ? ' (forced)' : ''}${options.user ? ' (user-confirmed)' : ''}`);
         console.log(`Task '${id}' moved to ${state}.`);
       } else {
         console.error(`Failed to move task '${id}'.`);
@@ -298,18 +357,84 @@ program
   });
 
 program
+  .command('status-update <id>')
+  .description('Update the execution status of a task (for agent use). Updates statusDescription, lastAgentSummary, etc.')
+  .option('-s, --status <text>', 'Current working status description')
+  .option('-S, --summary <text>', 'Natural language summary of what the agent did')
+  .option('-a, --action <text>', 'Last action performed (e.g. pickup, implement-start, test-flow-pass)')
+  .option('-t, --agent-type <type>', 'Agent type (executor|tester)')
+  .option('-n, --agent-name <text>', 'Agent name/ID for run log')
+  .option('--inc-attempt', 'Increment attemptCount')
+  .action((id: string, options: { status?: string; summary?: string; action?: string; agentType?: string; agentName?: string; incAttempt?: boolean }) => {
+    const taskDir = path.join(process.cwd(), '.tasks');
+    updateTaskStatus(taskDir, id, {
+      statusDescription: options.status,
+      lastAgentSummary: options.summary,
+      lastAgentAction: options.action,
+      lastAgentType: options.agentType as 'executor' | 'tester' | undefined,
+      agentName: options.agentName,
+      incAttempt: options.incAttempt,
+    });
+  });
+
+program
+  .command('recover')
+  .description('Recover stuck tasks: find tasks in processing/testing with no lock or stale lock and move them to pending')
+  .option('--dry-run', 'List tasks that would be recovered without moving them')
+  .action((options: { dryRun?: boolean }) => {
+    const taskDir = path.join(process.cwd(), '.tasks');
+    recoverStuckTasks(taskDir, { dryRun: options.dryRun });
+  });
+
+program
+  .command('test-fail <id>')
+  .description('Report a test failure. Auto-increments bounceCount, auto-blocks if maxBounces exceeded or same bugs detected.')
+  .option('-r, --reason <text>', 'Reason for test failure')
+  .option('-n, --agent-name <text>', 'Agent name/ID for run log')
+  .action((id: string, options: { reason?: string; agentName?: string }) => {
+    const taskDir = path.join(process.cwd(), '.tasks');
+    testFail(taskDir, id, {
+      reason: options.reason,
+      agentName: options.agentName,
+    });
+  });
+
+program
   .command('approve <id>')
-  .description('Move task from review to done')
-  .action((id: string) => {
+  .description('Move task from review to done — USER ONLY, agents must NOT call this')
+  .option('--user', 'Confirm this is a user action (required to prevent agents from auto-approving)')
+  .action((id: string, options: { user?: boolean }) => {
+    // Guard: approve requires --user flag to prevent agents from auto-approving
+    if (!options.user) {
+      console.error("The 'approve' command requires the --user flag.");
+      console.error("Agents MUST NOT approve tasks — only the user can approve tasks.");
+      console.error("If you are a user, run: npx taskflow approve <id> --user");
+      process.exit(1);
+    }
     const taskDir = path.join(process.cwd(), '.tasks');
     const state = getTaskState(taskDir, id);
     if (state !== 'review') {
       console.error(`Task '${id}' is not in review (current: ${state}).`);
       process.exit(1);
     }
+    // Reset bounceCount and update statusDescription before approving
+    const filePath = getTaskFilePath(taskDir, id);
+    if (filePath) {
+      try {
+        const raw = fs.readFileSync(filePath, 'utf-8');
+        const task = validateTaskYaml(parseYaml(raw));
+        task.bounceCount = 0;
+        task.previousBugs = undefined;
+        task.statusDescription = 'Approved and moved to done';
+        task.updatedAt = new Date().toISOString();
+        fs.writeFileSync(filePath, stringifyYaml(task), 'utf-8');
+      } catch {}
+    }
     try {
       if (moveTask(taskDir, id, 'done')) {
-        logUserAction(taskDir, 'approve', id, 'review', `User approved task '${id}'`);
+        logUserAction(taskDir, 'approve', id, 'review', `User approved task '${id}'`, {
+          summary: 'Task approved. Bounce count reset.',
+        });
         console.log(`Task '${id}' approved and moved to done.`);
       } else {
         console.error(`Failed to move task '${id}'.`);
@@ -345,10 +470,11 @@ program
         taskVersion = task.version || 0;
         if (options.reason) {
           task.blockedReason = options.reason;
-          task.updatedAt = new Date().toISOString();
-          fs.writeFileSync(filePath, stringifyYaml(task), 'utf-8');
-          blockedReason = options.reason;
         }
+        task.statusDescription = `Rejected: ${options.reason || 'no reason given'}`;
+        task.updatedAt = new Date().toISOString();
+        fs.writeFileSync(filePath, stringifyYaml(task), 'utf-8');
+        blockedReason = options.reason;
       } catch {}
     }
     try {
@@ -654,9 +780,10 @@ program
 program
   .command('doctor')
   .description('Run health checks on .tasks/ directory, config, locks, and skills (B4)')
-  .action(() => {
+  .option('--fix', 'Automatically fix issues (recover stuck tasks, clean orphan locks)')
+  .action((options: { fix?: boolean }) => {
     const taskDir = path.join(process.cwd(), '.tasks');
-    const result = runDoctor(taskDir);
+    const result = runDoctor(taskDir, { fix: options.fix });
     for (const c of result.checks) {
       const icon = c.status === 'ok' ? '✓' : c.status === 'fail' ? '✗' : '○';
       console.log(`  ${icon} ${c.name}: ${c.message}`);
@@ -867,6 +994,13 @@ program
           ? `User resolved blocked task '${t.id}', moved back to ${prevState}`
           : `User unblocked task '${t.id}' (no pending questions), moved back to ${prevState}`;
         try {
+          // Update statusDescription and reset bounceCount before moving
+          task.statusDescription = `Unblocked, moved back to ${prevState}`;
+          task.bounceCount = 0;
+          task.previousBugs = undefined;
+          task.updatedAt = new Date().toISOString();
+          fs.writeFileSync(filePath, stringifyYaml(task), 'utf-8');
+
           if (moveTask(taskDir, t.id, prevState)) {
             logUserAction(taskDir, 'resolve-blocked', t.id, 'blocked', desc, {
               taskVersion: task.version,

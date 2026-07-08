@@ -22,3 +22,12 @@ testResults:
   flows:
     <flow-slug>: { pass: false, lastRun: null }
   passRatio: 0.0
+
+# Execution status — updated by agents on every heartbeat
+statusDescription: ""
+lastAgentSummary: ""
+lastAgentType: ""
+lastAgentAction: ""
+lastAgentActionAt: ""
+attemptCount: 0
+bounceCount: 0

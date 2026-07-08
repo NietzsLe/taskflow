@@ -1,19 +1,25 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { ensureStateDirs, STATE_DIRS } from '../core/state';
-import { TaskState, VALID_STATES } from '../core/types';
+import { STATE_DIRS } from '../core/state';
 import { loadConfig } from '../core/config';
+import { recoverStuckTasks } from './recover';
+import { releaseLock } from '../core/lock';
 
 export interface DoctorResult {
   ok: boolean;
   checks: { name: string; status: 'ok' | 'fail' | 'warn'; message: string }[];
 }
 
+export interface DoctorOptions {
+  fix?: boolean;
+}
+
 /**
  * Run health checks on the .tasks/ directory and configuration.
  * Returns a report; exit code 0 if all ok, 1 if any fail.
+ * When fix=true, also recovers stuck tasks (orphan locks, stale locks).
  */
-export function runDoctor(taskDir: string): DoctorResult {
+export function runDoctor(taskDir: string, options?: DoctorOptions): DoctorResult {
   const checks: DoctorResult['checks'] = [];
 
   // 1. State directories
@@ -97,6 +103,26 @@ export function runDoctor(taskDir: string): DoctorResult {
       status: fs.existsSync(skillFile) ? 'ok' : 'warn',
       message: fs.existsSync(skillFile) ? 'installed' : 'not installed (run: npx taskflow init)',
     });
+  }
+
+  // 8. Fix mode: recover stuck tasks + clean orphan locks
+  if (options?.fix) {
+    console.log('\n--- Fix mode: recovering stuck tasks ---');
+    recoverStuckTasks(taskDir);
+    // Clean up orphan locks (locks for tasks not in processing/testing, or non-existent tasks)
+    if (fs.existsSync(locksDir)) {
+      const lockFiles = fs.readdirSync(locksDir).filter(f => f.startsWith('task-') && f.endsWith('.lock'));
+      for (const lf of lockFiles) {
+        const taskId = lf.replace(/^task-/, '').replace(/\.lock$/, '');
+        const taskState = STATE_DIRS.find(s => fs.existsSync(path.join(taskDir, s, `${taskId}.yaml`)));
+        if (!taskState || (taskState !== 'processing' && taskState !== 'testing')) {
+          const lockPath = path.join(locksDir, lf);
+          console.log(`  Releasing orphan lock: ${lf} (task in ${taskState || 'not found'})`);
+          releaseLock(lockPath);
+        }
+      }
+    }
+    console.log('--- Fix complete ---\n');
   }
 
   const hasFail = checks.some(c => c.status === 'fail');

@@ -25,6 +25,7 @@ export interface TaskFlowConfig {
     infraLockRequired: boolean;
     skipPassedFlows: boolean;
     warnNoBrowserMCP: boolean;
+    maxBounces: number;
   };
   browserMCP: BrowserMCPEntry[];
   infrastructure: {
@@ -191,6 +192,7 @@ export function getDefaultConfig(): TaskFlowConfig {
       infraLockRequired: true,
       skipPassedFlows: true,
       warnNoBrowserMCP: true,
+      maxBounces: 3,
     },
     browserMCP: [
       {
@@ -464,6 +466,7 @@ export function coerceConfig(parsed: Partial<TaskFlowConfig>): Partial<TaskFlowC
     result.test = {
       ...parsed.test,
       passRatioRequired: coerceNumber(parsed.test.passRatioRequired, 'test.passRatioRequired', { min: 0, max: 1, default: 1.0 }),
+      maxBounces: coerceNumber(parsed.test.maxBounces, 'test.maxBounces', { min: 1, max: 20, default: 3 }),
     };
   }
   return result;
