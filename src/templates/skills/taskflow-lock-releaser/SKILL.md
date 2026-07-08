@@ -22,23 +22,19 @@ Detect and release lock files where the acquiring session has stopped heartbeati
 
 ### Run ONE check cycle
 
-Read all `.lock` files in `.tasks/locks/` (skip non-.lock files).
+**You MUST run these commands — do NOT guess or assume lock file contents.**
 
-For each lock file:
+Check for stale locks:
+```bash
+npx taskflow unlock --all
+```
 
-1. **Parse**: Read the file, parse YAML → extract `heartbeatAt`
-2. **Check**: Calculate `elapsed = now - heartbeatAt` (seconds)
-   - `elapsed <= config.heartbeat.staleThresholdSeconds` (default 120s) → lock is alive → **skip**
-   - `elapsed > staleThresholdSeconds` → lock is stale → force release
-3. **Double-check**: Re-read the file, recalculate elapsed
-4. **Force release**: If still stale → delete the lock file. If no longer stale (agent heartbeated between checks) → **skip**.
-5. **Recover task**: If this was a task lock (`task-<id>.lock`), check if the task is in `processing/` or `testing/`. If so, move it to `pending/` so it can be re-picked up:
-   ```bash
-   npx taskflow recover
-   ```
-   This will find the task (now with no lock) and move it to `pending/` with status "Recovered from stale lock".
-   **Note:** Recovery does NOT increment `bounceCount` — it's not a test failure, just a lock cleanup.
-6. **Log**: Write to `.tasks/runs/releaser-log.md`
+Then recover any stuck tasks:
+```bash
+npx taskflow recover
+```
+
+If `unlock --all` released any locks and `recover` moved tasks to pending, log the results. If nothing was stale, log "no stale locks found."
 
 ### Usage with /loop
 

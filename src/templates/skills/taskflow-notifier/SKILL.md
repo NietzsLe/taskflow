@@ -32,121 +32,44 @@ Build a state snapshot of all tasks, diff against the previous snapshot, and rep
 
 ## 3. Detailed Procedure
 
-### Step 1: Read config
+### Step 1: Run the notify command
 
-Read `.tasks/config.yaml`:
-- `notification.enabled` — if false, stop
-- `notification.channels` — list of channels to send through
-- `notification.checkIntervalSeconds` — not used by this skill (handled by /loop)
-- `notification.snapshotPath` — path to the state snapshot file
-- `notification.reportOnNoChange` — if false, skip notification when nothing changed
-- `notification.detailedOnIssues` — if true, issues get detailed formatting
+**You MUST run this command — do NOT guess or assume task states.**
 
-### Step 2: Build current snapshot
-
-Scan ALL state directories (defined, pending, processing, testing, review, done, blocked). For each task YAML file, read:
-- `id`, `name`, `version`, `bounceCount`, `attemptCount`
-- `blockedReason`, `pendingQuestions` (count unanswered)
-- `updatedAt`
-
-Also check `.tasks/locks/task-<id>.lock` for each task in processing/testing:
-- Read the lock file to get `sessionId`
-- Check if the lock is stale (heartbeat older than `heartbeat.staleThresholdSeconds`)
-
-### Step 3: Load previous snapshot
-
-Read `.tasks/runs/notifier-state.json`. If it doesn't exist → this is the first run.
-
-### Step 4: First run behavior
-
-If no previous snapshot:
-1. Format an initial report listing ALL tasks as "new" with a framework overview
-2. Send through all enabled channels
-3. Write the snapshot
-4. Log to notifier-log.md and main run log
-5. Stop
-
-### Step 5: Compute diff
-
-Compare current snapshot against previous snapshot. Detect:
-
-| Change | How to detect |
-|--------|---------------|
-| State transition | `state` field differs |
-| New task | ID in current but not previous |
-| Removed task | ID in previous but not current |
-| Newly blocked | `state` changed TO `blocked` |
-| Resolved block | `state` changed FROM `blocked` |
-| Version bump | `version` field increased |
-| Bounce threshold | `bounceCount` crossed `test.maxBounces` |
-| Stale lock | `lockStale` changed from false to true |
-
-### Step 6: Format report
-
-If nothing changed and `reportOnNoChange` is false → skip notification, just update snapshot.
-
-Format the report as markdown:
-
-```
-=== TaskFlow Status Report ===
-<timestamp>
-
-**Summary:**
-  • Task A (v2): pending → processing
-  • Task B (v1): testing → review
-  • Task C: created in pending
-  • Task D: v1 → v2
-
-**Issues:**
-  ⚠️ Task E (task-e_001): BLOCKED
-     Was in: testing
-     Reason: API key missing
-     Questions: 2 unanswered
-       [Config] MAP4D_API_KEY missing
-       [Design] Should I use env var or config file?
-     → npx taskflow resolve-blocked task-e_001
-
-  ⚠️ Task F (task-f_001): bounced 3/3 times
-     → npx taskflow resolve-blocked task-f_001
-
-  ⚠️ task-g_001: stale lock (session: abc-123, 150s since heartbeat)
-     → npx taskflow unlock task-g_001
-
-**Framework:** 8 tasks (2 pending, 1 processing, 2 testing, 1 review, 1 blocked, 1 done)
+```bash
+npx taskflow notify
 ```
 
-For newly blocked tasks, enrich the report by reading the task YAML for full `pendingQuestions` and recent run log entries.
+This command:
+1. Reads `.tasks/config.yaml` for notification settings
+2. Builds a snapshot of ALL tasks across ALL states
+3. Compares against the previous snapshot (`.tasks/runs/notifier-state.json`)
+4. Detects changes: transitions, new tasks, removed tasks, blocked, bounce thresholds, stale locks, version bumps
+5. Formats a report (summary for normal changes, detailed for issues)
+6. Sends through all enabled channels (console, file, webhook, email, custom)
+7. Writes the new snapshot for the next cycle
 
-### Step 7: Send through enabled channels
+**If `notification.enabled` is false → STOP.**
 
-For each channel where `enabled: true`:
-1. Read the channel's `guide` field — this tells you HOW to send
-2. Follow the guide instructions exactly
-3. Console → print to terminal
-4. File → append to file specified in `path`
-5. Webhook → HTTP POST to `url` with format
-6. Email → send via SMTP
-7. Custom → follow guide instructions
+**If `--dry-run` is needed** (show report without sending):
+```bash
+npx taskflow notify --dry-run
+```
 
-Send through ALL enabled channels. If a channel fails, log the failure and continue.
+**To reset the snapshot** (next run reports all tasks as new):
+```bash
+npx taskflow notify --reset
+```
 
-### Step 8: Log
+### Step 2: Log
 
-Write to `.tasks/runs/notifier-log.md`:
+After running `notify`, write to `.tasks/runs/notifier-log.md`:
 ```markdown
 ## <timestamp>
-- Checked tasks: <count>
+- Ran notify cycle
 - Changes detected: <count>
-- Transitions: <n>, New: <n>, Blocked: <n>, Bounces: <n>, Stale locks: <n>, Version bumps: <n>, Resolved: <n>
-- Sent through: <channel list>
-- Failed channels: <list or "none">
+- Sent through: <channels>
 ```
-
-Also write a main run log entry via `appendRunLog` with `agentType: 'notifier'` and `action: 'notify-cycle'`.
-
-### Step 9: Write snapshot
-
-Save the current snapshot to `.tasks/runs/notifier-state.json` for the next cycle.
 
 ## 4. Usage with /loop
 

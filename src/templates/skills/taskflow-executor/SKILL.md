@@ -296,18 +296,37 @@ Read `.tasks/config.yaml` → `infrastructure` to understand the system architec
 
 You MUST understand the architecture before touching code. This step is not optional.
 
-Read all `.yaml` files in BOTH `.tasks/pending/` AND `.tasks/processing/`.
+### Step 2: List available tasks (MUST run CLI command)
 
-File format: `.tasks/pending/YYYY-MM-DD_<task-name>_<seq>.yaml` or `.tasks/processing/YYYY-MM-DD_<task-name>_<seq>.yaml`
+**You MUST run this command — do NOT guess or assume the directory contents.**
+
+```bash
+npx taskflow list pending --quiet
+```
+
+This prints task IDs (one per line) of all tasks in `pending/`. If empty, it prints "No tasks found."
+
+Then check processing tasks:
+
+```bash
+npx taskflow list processing --quiet
+```
 
 **Priority order:**
-1. First, check `.tasks/processing/` — tasks here were started by a previous executor session but abandoned (e.g., agent crash, stale lock, or returned from tester with bugs). These have higher priority because they already have partial work.
-2. Then, check `.tasks/pending/` — fresh tasks ready for pickup.
+1. First, process tasks from `processing/` — these were started by a previous executor session but abandoned (e.g., agent crash, stale lock, or returned from tester with bugs). Higher priority because they already have partial work.
+2. Then, process tasks from `pending/` — fresh tasks ready for pickup.
+
+**If BOTH commands return empty/no tasks → STOP immediately.** Do NOT create new tasks. Do NOT guess. The `/loop` mechanism will restart you later.
 
 **How to identify abandoned processing tasks:**
 - A task in `processing/` whose lock file `.tasks/locks/task-<id>.lock` is **stale** (heartbeat older than `config.heartbeat.staleThresholdSeconds`) → previous executor crashed or disconnected
 - A task in `processing/` with **no lock file** → lock was released but task wasn't moved (e.g., version change, or interrupted transition)
 - A task in `processing/` with `bugs[]` array populated → returned from tester, needs bug fixes
+
+To check lock status for a task:
+```bash
+npx taskflow status <task-id>
+```
 
 ### Step 3: Check lock for each task
 

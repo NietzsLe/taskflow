@@ -252,7 +252,17 @@ Read the following fields from `config.tester`:
 
 ### Step 2: List testing tasks
 
-Read all `.yaml` files in `.tasks/testing/`.
+### Step 2: List available tasks (MUST run CLI command)
+
+**You MUST run this command — do NOT guess or assume the directory contents.**
+
+```bash
+npx taskflow list testing --quiet
+```
+
+This prints task IDs (one per line) of all tasks in `testing/`. If empty, it prints "No tasks found."
+
+**If the command returns empty/no tasks → STOP immediately.** Do NOT guess. The `/loop` mechanism will restart you later.
 
 ### Step 2.5: Switch to base branch (git flow only — if config.gitFlow.enabled)
 
