@@ -30,6 +30,8 @@ export interface TaskFlowConfig {
   browserMCP: BrowserMCPEntry[];
   infrastructure: {
     defaultEnvironment: string;
+    repositories: RepoConfig[];
+    repoRelationships: RepoRelationship[];
     environments: Record<string, EnvironmentConfig>;
     seed: SeedEntry[];
   };
@@ -125,14 +127,39 @@ export interface BrowserMCPEntry {
   description?: string;   // Optional description
 }
 
+export interface RepoConfig {
+  name: string;
+  role: string;
+  path: string;
+  description: string;
+  mapsToComponents?: string[];
+  interactionGuide?: string;
+}
+
+export interface RepoRelationship {
+  from: string;
+  to: string;
+  type: string;
+  description: string;
+}
+
+export interface ComponentRelationship {
+  from: string;
+  to: string;
+  type: string;
+  description: string;
+}
+
 export interface EnvironmentConfig {
   description: string;
   setupGuide: string;
-  services: ServiceConfig[];
+  components: ServiceConfig[];
+  componentRelationships?: ComponentRelationship[];
 }
 
 export interface ServiceConfig {
   name: string;
+  role?: string;
   description: string;
   type: 'docker' | 'process' | 'remote';
   check: {
@@ -150,8 +177,9 @@ export interface ServiceConfig {
     instruction?: string;
     timeoutSeconds?: number;
   };
-  depends_on?: string[];
+  dependsOn?: string[];
   required: boolean;
+  interactionGuide?: string;
 }
 
 export interface SeedEntry {
@@ -165,9 +193,11 @@ export interface SeedEntry {
   setup: {
     auto: boolean;
     command?: string;
+    instruction?: string;
     timeoutSeconds?: number;
   };
   required: boolean;
+  interactionGuide?: string;
 }
 
 export function getDefaultConfig(): TaskFlowConfig {
@@ -206,6 +236,8 @@ export function getDefaultConfig(): TaskFlowConfig {
     ],
     infrastructure: {
       defaultEnvironment: 'dev',
+      repositories: [],
+      repoRelationships: [],
       environments: {},
       seed: [],
     },
@@ -389,6 +421,8 @@ export function deepMergeConfig(defaults: TaskFlowConfig, parsed: Partial<TaskFl
     browserMCP: mergeArray(defaults.browserMCP, parsed.browserMCP),
     infrastructure: {
       defaultEnvironment: parsed.infrastructure?.defaultEnvironment ?? defaults.infrastructure.defaultEnvironment,
+      repositories: mergeArray(defaults.infrastructure.repositories, parsed.infrastructure?.repositories),
+      repoRelationships: mergeArray(defaults.infrastructure.repoRelationships, parsed.infrastructure?.repoRelationships),
       environments: { ...defaults.infrastructure.environments, ...parsed.infrastructure?.environments },
       seed: mergeArray(defaults.infrastructure.seed, parsed.infrastructure?.seed),
     },
@@ -483,6 +517,21 @@ export function loadConfig(taskDir: string): TaskFlowConfig {
   const rawParsed = parsed as Record<string, any>;
   if (rawParsed.notification?.blockedCheckIntervalSeconds !== undefined && rawParsed.notification?.checkIntervalSeconds === undefined) {
     rawParsed.notification.checkIntervalSeconds = rawParsed.notification.blockedCheckIntervalSeconds;
+  }
+  // Backward compat: map services → components, depends_on → dependsOn per environment
+  if (rawParsed.infrastructure?.environments) {
+    for (const env of Object.values(rawParsed.infrastructure.environments) as any[]) {
+      if (env.services && !env.components) {
+        env.components = env.services;
+      }
+      if (env.components) {
+        for (const svc of env.components) {
+          if (svc.depends_on && !svc.dependsOn) {
+            svc.dependsOn = svc.depends_on;
+          }
+        }
+      }
+    }
   }
   const coerced = coerceConfig(parsed);
   const defaults = getDefaultConfig();

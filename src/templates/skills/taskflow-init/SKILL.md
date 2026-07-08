@@ -77,35 +77,81 @@ Open `.tasks/config.yaml` and configure:
    ```
    Note: The agent must have the MCP tool connected already. This config only declares which connected tools are available for UI testing.
 
-2. **Infrastructure services** — if the project has services:
-   ```yaml
-   infrastructure:
-     environments:
-       dev:
-         services:
-           - name: "core-api"
-             type: "process"
-             check:
-               method: "http"
-               url: "http://localhost:3001/health"
-             setup:
-               auto: false
-               instruction: "Open a new terminal and run npm run start:dev"
-             required: true
-   ```
+### Step 4: Configure infrastructure (CRITICAL)
 
-3. **Seed data** — if seed data is needed:
-   ```yaml
-   infrastructure:
-     seed:
-       - name: "admin-user"
-         check:
-           method: "api"
-           url: "http://localhost:3001/api/users/admin"
-         setup:
-           auto: true
-           command: "npm run seed"
-   ```
+Infrastructure configuration is EXTREMELY IMPORTANT. Executor and tester agents read this to understand the system architecture before working. Without this, agents cannot understand which components exist, how they relate, or how to interact with them.
+
+#### 4a. Identify repositories
+
+If the workspace has 1 repo at root → leave `repositories: []` (empty = single root repo, backward compatible).
+
+If the workspace has multiple repos (monorepo or multi-repo layout):
+1. List each repo directory: `ls -d */`
+2. For each repo, determine:
+   - `name` — short identifier
+   - `role` — backend | frontend | shared | tooling | infra | docs
+   - `path` — relative to workspace root
+   - `description` — what this repo does
+   - `mapsToComponents` — which infrastructure components this repo provides code for
+   - `interactionGuide` — how to start, test, build, troubleshoot (text description, not structured commands)
+3. Write repo-to-repo relationships (`repoRelationships`):
+   - `from` → `to` pairs with `type` and `description`
+   - Example: web-server → core-api (api-consumer)
+
+#### 4b. Identify infrastructure components
+
+Read the project's:
+- `docker-compose*.yml` — self-host services (docker containers)
+- `.env.example` — remote services + env vars
+- `README`, `CLAUDE.md` — architecture overview
+
+For each component, determine:
+- `name` — short identifier
+- `role` — database | cache | authz | scanner | api | web | storage | maps
+- `type` — docker | process | remote
+- `description` — what this component does, its responsibilities
+- `check` — how to verify it's up (port/tcp, http, command)
+- `setup` — how to start it (auto: true → command runs automatically; auto: false → instruction for user)
+- `dependsOn` — what must be up first (for check ordering)
+- `required` — true = agent must block if down; false = optional
+- `interactionGuide` — how to connect, inspect, troubleshoot (text description)
+
+Component types:
+- **docker**: runs in Docker container, can be auto-started via docker compose
+- **process**: runs as a local process (npm run dev), needs manual start
+- **remote**: external service (Cloudflare R2, Map4D API), cannot auto-setup, only check health
+
+#### 4c. Identify component relationships
+
+Read `docker-compose.yml` `depends_on` and architecture docs. Write `componentRelationships` as from→to pairs:
+- `from` — source component name
+- `to` — target component name
+- `type` — http-proxy | database | cache | authz | virus-scan | storage | maps | static-assets
+- `description` — what flows between them
+
+Example relationships:
+```yaml
+componentRelationships:
+  - { from: "web-server", to: "core-api", type: "http-proxy", description: "Next.js proxies API to core-api" }
+  - { from: "core-api", to: "postgresql", type: "database", description: "Prisma ORM reads/writes" }
+  - { from: "core-api", to: "cloudflare-r2", type: "storage", description: "Media file storage" }
+```
+
+#### 4d. Configure seed data
+
+If the project has seed/reset commands:
+- `name` — short identifier
+- `description` — what this seed does
+- `check` — how to verify seed is applied (api endpoint or command)
+- `setup` — how to apply seed (auto: true → auto-run; auto: false → guide user)
+- `required` — true = agent must block if seed missing
+- `interactionGuide` — how to run seed, what it does, troubleshooting
+
+#### 4e. Verify
+
+Run `npx taskflow check-infra <env>` to verify the configuration works.
+
+This step is NOT optional. Agents cannot work without understanding the architecture. Ask the user to confirm before proceeding.
 
 ### Step 3.4: Configure custom instructions for executor and tester
 

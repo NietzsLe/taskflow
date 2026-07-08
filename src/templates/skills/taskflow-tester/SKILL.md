@@ -334,7 +334,7 @@ Read `testResults.flows.<flow-name>.pass`:
 - If `true` and `config.test.skipPassedFlows == true` → **skip**, do not run again
 - If `false` or missing → run this flow
 
-#### 7b. Check infrastructure (check first, setup only if needed)
+#### 7b. Check infrastructure (upgraded — dependency order + seed + interaction guides)
 
 **Before running any test flow, check if the infrastructure is already up** to avoid unnecessary restarts:
 
@@ -342,23 +342,32 @@ Read `testResults.flows.<flow-name>.pass`:
 npx taskflow check-infra <env>
 ```
 
+This now checks in **dependency order** (components with `dependsOn` are checked after their dependencies). If a dependency is down, dependent components are reported as "skipped (dependency down)" instead of "fail".
+
 If all required services are healthy → **skip setup, proceed to test flows directly** (saves time).
 
 If some services are not available → set them up:
 
 Read the flow's `environment` (natural language text). Cross-reference with `config.infrastructure.environments`:
 
-1. **Identify the environment**: The flow mentions services → look them up in `config.infrastructure.environments.<env>.services`
-2. **Setup missing services**:
-   - `service.setup.auto == true` → run `service.setup.command` with timeout `service.setup.timeoutSeconds`
-   - `service.setup.auto == false` → guide user via `service.setup.instruction`
-3. **Check seed data**:
-   - Look up `config.infrastructure.seed` → verify each seed via `seed.check.method`
-   - If missing → run `seed.setup.command`
-4. **If a `required: true` service cannot start** → write `blockedReason`, release locks, notify user
-5. **Re-run `npx taskflow check-infra <env>`** to confirm all services are healthy before proceeding.
+1. **Identify the environment**: The flow mentions components → look them up in `config.infrastructure.environments.<env>.components`
+2. **Read componentRelationships** to understand test design:
+   - If test flow touches `web-server` → also verify `core-api` is healthy
+   - If test flow touches `core-api` auth → also verify `cerbos` is healthy
+   - If test flow touches file upload → also verify `clamav` + `cloudflare-r2`
+3. **Setup missing components**:
+   - Read `component.interactionGuide` for setup instructions
+   - `component.setup.auto == true` → run `component.setup.command` with timeout
+   - `component.setup.auto == false` → guide user via `component.setup.instruction`
+   - **Remote components** (type: "remote" like Cloudflare R2, Map4D): check health only, cannot auto-setup. If down → warn user, do not block unless `required: true`
+4. **Check seed data** (integrated into `check-infra`):
+   - `npx taskflow check-infra <env>` now checks seed entries automatically
+   - If seed missing and `seed.setup.auto == true` → auto-runs seed command
+   - If seed missing and `seed.setup.auto == false` → guide user
+5. **If a `required: true` component cannot start** → write `blockedReason`, release locks, notify user
+6. **Re-run `npx taskflow check-infra <env>`** to confirm all services are healthy before proceeding.
 
-> The tester has full authority to set up the infrastructure (docker compose up, npm run dev, seed data, etc.). Read `config.infrastructure.environments.<env>.services[].setup` for the exact commands.
+> The tester has full authority to set up the infrastructure (docker compose up, npm run dev, seed data, etc.). Read `config.infrastructure.environments.<env>.components[].setup` and `components[].interactionGuide` for the exact commands and troubleshooting.
 
 #### 7c. Run steps
 

@@ -129,7 +129,7 @@ File: `.tasks/config.yaml` (template in `src/templates/config.yaml`, defaults in
 | `lock` | `acquireMode: create-exclusive`, `releaseMode: delete-file`. |
 | `test` | `passRatioRequired` (default 1.0), `maxRetriesPerFlow`, `infraLockRequired`, `skipPassedFlows`, `warnNoBrowserMCP`. |
 | `browserMCP` | List of connected browser-automation MCP tools the tester may use (e.g. `playwriter`). The agent must already have the MCP connected; this config only declares which are available. |
-| `infrastructure.environments.<env>.services[]` | Services required for a test environment (name, type `docker|process|remote`, health `check`, `setup`, `required`). The tester reads this to know what to bring up / verify. |
+| `infrastructure` | Repositories (`repositories[]`), repo relationships (`repoRelationships[]`), environments (`environments.<env>.components[]` with `role`, `type`, `check`, `setup`, `dependsOn`, `interactionGuide`), component relationships (`componentRelationships[]`), and `seed[]`. The executor reads this to understand architecture before implementing; the tester reads this to know what to bring up / verify. |
 | `runLog` | `enabled` + the four trimming limits above. |
 | `executor` / `tester` | `customInstructions`, `customSkills`, `customTools`, plus pickup/limits for executor. |
 | `user` | `allowMoveFromStates` (default `["defined","pending","blocked"]`) and `requireVersioningForActive`. |
@@ -421,3 +421,8 @@ When `--fix` is used:
 | User reports a stuck task | Run `status <id>` to see the lock holder + heartbeat; if stale, `unlock <id>` (or `unlock` for infra). |
 | User wants to clean up old worktrees | Run `taskflow cleanup-worktrees` — removes worktrees for done/blocked/orphan tasks. |
 | User wants to re-init TaskFlow | Use `taskflow init --force` — backs up existing `.tasks/` and re-creates from scratch. |
+| User wants to modify infrastructure | Edit `.tasks/config.yaml` → `infrastructure` section. Add/remove repos, components, relationships. Update `interactionGuide` for each. Run `npx taskflow check-infra <env>` to verify. Use `npx taskflow init --update-skills` to refresh skill templates. See init skill Step 4 for detailed guidance. |
+| User has a single-repo project | Leave `repositories: []` (empty = single repo at root, backward compatible). No need to declare repos. |
+| User has a multi-repo project | Declare each repo in `repositories[]` with `name`, `role`, `path`, `description`, `mapsToComponents[]`, `interactionGuide`. Declare repo relationships in `repoRelationships[]`. |
+| User adds a new component | Add to `environments.<env>.components[]` with `role`, `type`, `check`, `setup`, `dependsOn`, `interactionGuide`. Add relationships in `componentRelationships[]`. |
+| User adds a remote dependency (R2, Map4D) | Use `type: "remote"`. Check via HTTP. Cannot auto-setup. `interactionGuide` should describe env vars needed. |

@@ -262,7 +262,39 @@ Read the following fields from `config.executor`:
 
 **Note:** These custom instructions/skills/tools do not replace the framework — they supplement agent behavior while executing the task. The framework remains responsible for orchestration (lock, state, run log, versioning).
 
-### Step 2: List available tasks
+### Step 1.6: Read infrastructure (CRITICAL)
+
+Read `.tasks/config.yaml` → `infrastructure` to understand the system architecture:
+
+1. **Read repositories[]** — understand each repo's role, path, and what components it maps to:
+   - If `repositories: []` (empty) → single repo at root, all code is here
+   - For each repo: note its `role` (backend/frontend/shared), `path`, `description`, `mapsToComponents[]`
+   - Read `interactionGuide` for repos your task touches
+
+2. **Read repoRelationships[]** — understand repo-to-repo dependencies:
+   - Which repo depends on which? (e.g., web-server → core-api)
+
+3. **Read environments.<env>.components[]** — understand each component's role and interaction guide:
+   - For each component: note its `role` (database/cache/authz/scanner/api/web/storage/maps), `type` (docker/process/remote), `description`
+   - Read `interactionGuide` for how to connect, inspect, troubleshoot
+   - Note `dependsOn` to understand startup order
+
+4. **Read componentRelationships[]** — understand how components connect:
+   - Which component talks to which? (e.g., core-api → postgresql, core-api → cloudflare-r2)
+
+5. **Run `npx taskflow check-infra <env>`** — verify infrastructure health
+
+6. **Identify which components your task touches** — from task description/implementationNotes:
+   - If task mentions API paths like `/iam/xxx` → touches core-api
+   - If task mentions database models → touches postgresql
+   - If task mentions file upload → touches clamav + cloudflare-r2
+   - If task mentions maps → touches map4d-api
+   - Read `interactionGuide` for those specific components
+
+7. **If a required component is down and your task depends on it → block the task**:
+   - Move task to `blocked/` with reason: "Required component X is down. Setup instructions: ..."
+
+You MUST understand the architecture before touching code. This step is not optional.
 
 Read all `.yaml` files in BOTH `.tasks/pending/` AND `.tasks/processing/`.
 

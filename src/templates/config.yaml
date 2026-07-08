@@ -34,9 +34,95 @@ browserMCP:
     # This config only declares which connected MCP tools can be used for UI tests.
 
 infrastructure:
+  # ── Repositories (code repos in the workspace) ─────────────────────
+  # Empty array = single repo at root (backward compatible).
+  # Each repo: name, role (backend|frontend|shared|tooling|infra|docs),
+  #   path (relative to workspace root), description, mapsToComponents[],
+  #   interactionGuide (how to start, test, build, troubleshoot).
+  # Example:
+  # repositories:
+  #   - name: "core-api"
+  #     role: "backend"
+  #     path: "core-api"
+  #     description: "NestJS API — business logic, Prisma ORM, Cerbos authz"
+  #     mapsToComponents: ["core-api"]
+  #     interactionGuide: |
+  #       cd core-api && npm run start:dev
+  #       cd core-api && npm test
+  #       cd core-api && npm run reset:dev
+  #   - name: "web-server"
+  #     role: "frontend"
+  #     path: "web-server"
+  #     description: "Next.js 16 frontend — App Router"
+  #     mapsToComponents: ["web-server"]
+  #     interactionGuide: |
+  #       cd web-server && npm run dev
+  #       cd web-server && npm run build
+  # repositories: []
+  # repoRelationships: []
+  #   Repo-to-repo relationships (from→to pairs).
+  #   Example:
+  #   - { from: "web-server", to: "core-api", type: "api-consumer",
+  #       description: "web-server calls core-api REST API" }
+
   defaultEnvironment: "dev"
   environments: {}
+  #   Each environment has:
+  #   - components[]: name, role (database|cache|authz|scanner|api|web|storage|maps),
+  #       type (docker|process|remote), description, check, setup, dependsOn[],
+  #       required, interactionGuide
+  #   - componentRelationships[]: from→to pairs with type + description
+  #   Example:
+  #   dev:
+  #     description: "Development environment"
+  #     components:
+  #       - name: "postgresql"
+  #         role: "database"
+  #         type: "docker"
+  #         description: "PostgreSQL 16 — primary database"
+  #         check: { method: "tcp", host: "localhost", port: 5434 }
+  #         setup: { auto: true, instruction: "docker compose up -d db" }
+  #         required: true
+  #         interactionGuide: |
+  #           docker exec -it evohome-db psql -U postgres
+  #           cd core-api && npm run reset:dev
+  #       - name: "core-api"
+  #         role: "api"
+  #         type: "process"
+  #         description: "NestJS API — port 3001"
+  #         check: { method: "http", url: "http://localhost:3001/health" }
+  #         setup: { auto: false, instruction: "cd core-api && npm run start:dev" }
+  #         required: true
+  #         dependsOn: [postgresql, redis]
+  #         interactionGuide: |
+  #           http://localhost:3001/api/docs
+  #           cd core-api && npm run start:dev
+  #       - name: "cloudflare-r2"
+  #         role: "storage"
+  #         type: "remote"
+  #         description: "Cloudflare R2 — media storage"
+  #         check: { method: "http", url: "https://pub-xxx.r2.dev" }
+  #         setup: { auto: false, instruction: "Configure R2_* env vars" }
+  #         required: true
+  #         interactionGuide: |
+  #           Configure R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY in .env
+  #     componentRelationships:
+  #       - { from: "core-api", to: "postgresql", type: "database",
+  #           description: "Prisma ORM reads/writes" }
+  #       - { from: "core-api", to: "cloudflare-r2", type: "storage",
+  #           description: "Media file storage" }
   seed: []
+  #   Seed entries: name, description, check (api|command), setup (auto|instruction),
+  #   required, interactionGuide
+  #   Example:
+  #   - name: "reset-dev-db"
+  #     description: "Reset dev database with seed data"
+  #     check: { method: "api", url: "http://localhost:3001/health" }
+  #     setup: { auto: true, instruction: "cd core-api && npm run reset:dev" }
+  #     required: true
+  #     interactionGuide: |
+  #       cd core-api && npm run reset:dev
+  #       Drops all tables, re-applies migrations, seeds dev data.
 
 runLog:
   enabled: true

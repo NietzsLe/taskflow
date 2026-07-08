@@ -361,12 +361,12 @@ describe('deepMergeConfig', () => {
   it('merges infrastructure.environments (spread merge keeps both)', () => {
     const def = getDefaultConfig();
     def.infrastructure.environments = {
-      dev: { description: 'dev env', setupGuide: '', services: [] },
+      dev: { description: 'dev env', setupGuide: '', components: [] },
     };
     const merged = deepMergeConfig(def, {
       infrastructure: {
         environments: {
-          staging: { description: 'staging', setupGuide: '', services: [] },
+          staging: { description: 'staging', setupGuide: '', components: [] },
         },
       } as any,
     });
