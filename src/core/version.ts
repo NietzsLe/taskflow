@@ -2,12 +2,13 @@ import * as fs from 'fs';
 import { parse as parseYaml } from 'yaml';
 import { TaskYaml } from './types';
 import { getTaskFilePath } from './state';
+import { validateTaskYaml } from './validate';
 
 export function getTaskVersion(taskDir: string, taskId: string): number | null {
   const filePath = getTaskFilePath(taskDir, taskId);
   if (!filePath) return null;
   const raw = fs.readFileSync(filePath, 'utf-8');
-  const task = parseYaml(raw) as TaskYaml;
+  const task = validateTaskYaml(parseYaml(raw));
   return task.version || null;
 }
 

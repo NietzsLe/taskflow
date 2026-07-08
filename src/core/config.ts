@@ -69,6 +69,8 @@ export interface NotificationChannel {
   smtpPassword?: string;
   from?: string;
   to?: string;
+  timeoutSeconds?: number;  // G3: timeout for sending (default 10)
+  retryCount?: number;      // G3: retries on failure (default 0)
 }
 
 export interface CustomSkill {
@@ -124,6 +126,7 @@ export interface ServiceConfig {
     host?: string;
     url?: string;
     expectedStatus?: number;
+    command?: string;
     timeoutSeconds?: number;
   };
   setup: {
@@ -391,13 +394,72 @@ export function deepMergeConfig(defaults: TaskFlowConfig, parsed: Partial<TaskFl
   };
 }
 
+function coerceNumber(v: unknown, field: string, opts: { min?: number; max?: number; default: number }): number {
+  let n: number;
+  if (typeof v === 'number' && !Number.isNaN(v)) {
+    n = v;
+  } else if (typeof v === 'string' && /^\d+(\.\d+)?$/.test(v.trim())) {
+    n = Number(v);
+  } else if (v === undefined || v === null) {
+    return opts.default;
+  } else {
+    throw new Error(`Config field '${field}' must be a number, got ${typeof v} ('${v}')`);
+  }
+  if (opts.min !== undefined && n < opts.min) {
+    n = opts.min;
+  }
+  if (opts.max !== undefined && n > opts.max) {
+    n = opts.max;
+  }
+  return n;
+}
+
+export function coerceConfig(parsed: Partial<TaskFlowConfig>): Partial<TaskFlowConfig> {
+  const result: Partial<TaskFlowConfig> = { ...parsed };
+  if (parsed.heartbeat) {
+    result.heartbeat = {
+      ...parsed.heartbeat,
+      intervalSeconds: coerceNumber(parsed.heartbeat.intervalSeconds, 'heartbeat.intervalSeconds', { min: 5, default: 60 }),
+      jitterSeconds: coerceNumber(parsed.heartbeat.jitterSeconds, 'heartbeat.jitterSeconds', { min: 0, default: 5 }),
+      staleThresholdSeconds: coerceNumber(parsed.heartbeat.staleThresholdSeconds, 'heartbeat.staleThresholdSeconds', { min: 10, default: 120 }),
+      lockReleaserIntervalSeconds: coerceNumber(parsed.heartbeat.lockReleaserIntervalSeconds, 'heartbeat.lockReleaserIntervalSeconds', { min: 5, default: 60 }),
+    };
+  }
+  if (parsed.test) {
+    result.test = {
+      ...parsed.test,
+      passRatioRequired: coerceNumber(parsed.test.passRatioRequired, 'test.passRatioRequired', { min: 0, max: 1, default: 1.0 }),
+    };
+  }
+  return result;
+}
+
 export function loadConfig(taskDir: string): TaskFlowConfig {
   const configPath = path.join(taskDir, 'config.yaml');
   if (!fs.existsSync(configPath)) {
     return getDefaultConfig();
   }
   const raw = fs.readFileSync(configPath, 'utf-8');
-  const parsed = parseYaml(raw) as Partial<TaskFlowConfig>;
+  // G1: resolve ${ENV_VAR} references in the raw text before parsing
+  const resolved = resolveEnvVars(raw);
+  const parsed = parseYaml(resolved) as Partial<TaskFlowConfig> | null;
+  if (!parsed || typeof parsed !== 'object') {
+    return getDefaultConfig();
+  }
+  const coerced = coerceConfig(parsed);
   const defaults = getDefaultConfig();
-  return deepMergeConfig(defaults, parsed);
+  return deepMergeConfig(defaults, coerced);
+}
+
+/**
+ * Replace ${ENV_VAR} and ${ENV_VAR:default} patterns with environment values.
+ * G1: allows secrets (SMTP passwords, webhook URLs) to be referenced without hardcoding.
+ */
+function resolveEnvVars(text: string): string {
+  return text.replace(/\$\{([A-Z_][A-Z0-9_]*)(?::([^}]*))?\}/g, (match, varName, defaultVal) => {
+    const envVal = process.env[varName];
+    if (envVal !== undefined) return envVal;
+    if (defaultVal !== undefined) return defaultVal;
+    return match; // leave unresolved as-is so validation can catch it
+  });
 }

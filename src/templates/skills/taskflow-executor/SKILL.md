@@ -120,20 +120,17 @@ heartbeatAt: "2026-07-07T10:00:00Z"
 
 ### Step 4: Acquire lock
 
-Once a task is selected:
+Once a task is selected, acquire the lock using the CLI helper (this is the only safe, atomic way — do NOT write the lock file by hand):
 
-1. Create `.tasks/locks/task-<id>.lock` with:
-   ```yaml
-   sessionId: "<uuid>"
-   agentType: "executor"
-   taskVersion: <task-yaml-version>
-   acquiredAt: "<current-time>"
-   heartbeatAt: "<current-time>"
-   ```
+```bash
+npx taskflow lock <task-id> --agent executor
+```
 
-2. Remember `sessionId` and `taskVersion` for later use
+On success, this prints the lock YAML (including the generated `sessionId`). **Remember the `sessionId` and `taskVersion`** for later use — you will need them for heartbeat and release.
 
-**Note:** If creating the lock file fails (file already exists due to race condition) → pick another task.
+If the command exits 1 ("already locked") → another session has the task → pick another task.
+
+> The lock file is written to `.tasks/locks/task-<id>.lock` using `O_CREAT | O_EXCL` (atomic create-exclusive) under the hood.
 
 ### Step 5: Read task YAML
 
@@ -152,19 +149,19 @@ Based on `description` and `implementationNotes`, implement the feature.
 
 **During implementation, periodically every `config.heartbeat.intervalSeconds` seconds:**
 
-1. **Heartbeat lock**: Update `heartbeatAt` in `.tasks/locks/task-<id>.lock`
+1. **Heartbeat lock**: Run `npx taskflow heartbeat <task-id>` to update `heartbeatAt`.
 2. **Check version**: Re-read the task YAML, compare `version` with `taskVersion` in the lock
-   - If different → release lock, write run log action `implement-stale`, pick another task
+   - If different → run `npx taskflow unlock <task-id>`, write run log action `implement-stale`, pick another task
 
 ### Step 7: Completion
 
 When implementation is done:
 
-1. **Move file**: `pending/` → `processing/` → `testing/`
-2. **Write run log** action `implement-start` when task moves to `processing`
-3. **Reset testResults** in the task YAML
-4. **Write run log** action `implement-done` when task moves to `testing`
-5. **Release lock**: Delete `.tasks/locks/task-<id>.lock`
+1. **Move to processing**: Move file `pending/` → `processing/`. Write run log action `implement-start`.
+2. **Move to testing**: Move file `processing/` → `testing/`. Reset `testResults` in the task YAML. Write run log action `implement-done`.
+3. **Release lock**: Run `npx taskflow unlock <task-id>` to delete `.tasks/locks/task-<id>.lock`.
+
+> Note: Steps 7.1 and 7.2 are two separate state transitions (`pending → processing`, then `processing → testing`), not a single combined move.
 
 ### Step 8: Handle blocked
 
@@ -180,17 +177,20 @@ If an issue cannot be resolved:
 | From | To | When |
 |------|----|------|
 | pending | processing | Starting implementation (Step 7.1) |
-| processing | testing | Implementation complete (Step 7.3) |
+| processing | testing | Implementation complete (Step 7.2) |
 | processing | pending | Version change (Step 6.2) — release lock only, no file move |
+| processing | blocked | Has questions, cannot proceed (Step 8) |
 
 ## 5. Run log entries
 
 After each action, write an entry to `.tasks/runs/sessions/<sessionId>.md` and `.tasks/runs/tasks/<taskId>.md`:
 - `pickup` — when lock is acquired. Summary: describe what task you picked up and what you plan to do.
 - `implement-start` — when task moves to `processing`. Summary: describe what you're implementing.
-- `implement-done` — when moved to testing. Summary: describe what was implemented, files changed, and verification done.
+- `implement-done` — when moved to `testing`. Summary: describe what was implemented, files changed, and verification done.
 - `implement-blocked` — when blocked. Summary: describe the problem and what's needed. Also add a `pendingQuestion` to the task YAML so the next session or user can address it.
 - `implement-stale` — when version change detected. Summary: describe that version changed and you're releasing the lock.
+
+> Note: The `action` field in a run log entry is a free-form string — the names above are the convention this skill uses. There is no fixed enum enforced by the code. When filtering run logs with `taskflow runs --agent executor`, any entry with `**Agent:** executor` will match, regardless of the action name.
 
 **When blocked, add a pending question to the task YAML:**
 ```yaml

@@ -115,27 +115,20 @@ For each task file, check 2 locks:
 
 ### Step 4: Acquire locks
 
-When a task is selected and infra is available:
+When a task is selected and infra is available, use the CLI helpers (do NOT write lock files by hand):
 
 1. **Acquire infra lock first**:
-   ```yaml
-   # .tasks/locks/infra.lock
-   sessionId: "<uuid>"
-   acquiredAt: "<current-time>"
-   heartbeatAt: "<current-time>"
+   ```bash
+   npx taskflow lock --infra
+   ```
+   If this exits 1, another tester holds the infra lock — wait and retry.
+
+2. **Acquire task lock second**:
+   ```bash
+   npx taskflow lock <task-id> --agent tester
    ```
 
-2. **Acquire task lock**:
-   ```yaml
-   # .tasks/locks/task-<id>.lock
-   sessionId: "<uuid>"
-   agentType: "tester"
-   taskVersion: <task-yaml-version>
-   acquiredAt: "<current-time>"
-   heartbeatAt: "<current-time>"
-   ```
-
-**Important order:** Infra lock first, task lock second. Release in reverse order.
+**Important order:** Infra lock first, task lock second. Release in reverse order (task lock first, infra lock second) — see Step 10.
 
 ### Step 5: Read task YAML
 
@@ -187,13 +180,20 @@ Read `steps` (natural language text). The agent decides:
 - Which MCP tool to use (browser_navigate, browser_click, browser_type, etc.)
 - What to assert (URL, text, visible element, API response, DB query)
 
-**During execution, heartbeat every `config.heartbeat.intervalSeconds` seconds** (both task lock and infra lock).
+**During execution, heartbeat every `config.heartbeat.intervalSeconds` seconds** (both task lock and infra lock):
+
+```bash
+npx taskflow heartbeat <task-id>
+npx taskflow heartbeat --infra
+```
 
 **Check version change every `config.heartbeat.intervalSeconds` seconds:**
 - If `version` in the file differs from `taskVersion` in the lock:
-  1. Release task lock + infra lock
+  1. Run `npx taskflow unlock <task-id>` and `npx taskflow unlock` (infra)
   2. Write run log: "Task <id> has a new version (v<old> → v<new>). Skipping."
   3. Return to Step 1
+
+> Note on flow-slug generation: when recording test results, the framework slugifies the flow name via `name.toLowerCase().replace(/[^a-z0-9]+/g, '-')`. This does NOT strip leading/trailing dashes — a flow named "  Hello World  " becomes slug `--hello-world--`. Keep your flow names clean (no leading/trailing spaces) to avoid surprising slug keys.
 
 #### 7d. Record results
 
@@ -250,10 +250,12 @@ The task goes back to processing with bug info so the executor knows what to fix
 
 ### Step 10: Release locks
 
-**Order:** Task lock first, infra lock second.
+**Order:** Task lock first, infra lock second (reverse of the acquire order in Step 4).
 
-1. Delete `.tasks/locks/task-<id>.lock`
-2. Delete `.tasks/locks/infra.lock`
+```bash
+npx taskflow unlock <task-id>    # release task lock
+npx taskflow unlock               # release infra lock
+```
 
 ## 4. State transitions performed by this skill
 

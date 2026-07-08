@@ -19,6 +19,10 @@ export function getReleaserLogPath(taskDir: string): string {
   return path.join(getRunsDir(taskDir), 'releaser-log.md');
 }
 
+export function getNotifierLogPath(taskDir: string): string {
+  return path.join(getRunsDir(taskDir), 'notifier-log.md');
+}
+
 export function getGlobalSeqPath(taskDir: string): string {
   return path.join(getRunsDir(taskDir), '.seq');
 }
@@ -92,13 +96,31 @@ function trimSessionFiles(taskDir: string, maxFiles: number): void {
   if (maxFiles <= 0) return;
   const sessionsDir = getSessionsDir(taskDir);
   if (!fs.existsSync(sessionsDir)) return;
-  const files = fs.readdirSync(sessionsDir)
-    .filter(f => f.endsWith('.md'))
-    .map(f => ({ name: f, mtime: fs.statSync(path.join(sessionsDir, f)).mtimeMs }))
-    .sort((a, b) => b.mtime - a.mtime);
+  let files: { name: string; mtime: number }[];
+  try {
+    files = fs.readdirSync(sessionsDir)
+      .filter(f => f.endsWith('.md'))
+      .map(f => {
+        let mtime = 0;
+        try {
+          mtime = fs.statSync(path.join(sessionsDir, f)).mtimeMs;
+        } catch {
+          // file may have been deleted concurrently — treat as old so it gets pruned
+          mtime = 0;
+        }
+        return { name: f, mtime };
+      })
+      .sort((a, b) => b.mtime - a.mtime);
+  } catch {
+    return; // directory may have been deleted
+  }
   if (files.length > maxFiles) {
     for (const f of files.slice(maxFiles)) {
-      fs.unlinkSync(path.join(sessionsDir, f.name));
+      try {
+        fs.unlinkSync(path.join(sessionsDir, f.name));
+      } catch {
+        // already gone
+      }
     }
   }
 }
@@ -145,6 +167,20 @@ export function appendReleaserLog(taskDir: string, message: string): void {
   ensureDirs(taskDir);
 
   const logPath = getReleaserLogPath(taskDir);
+  const now = new Date().toISOString();
+  const entry = `\n## ${now}\n${message}\n`;
+  fs.appendFileSync(logPath, entry, 'utf-8');
+  trimFile(logPath, maxLines);
+}
+
+export function appendNotifierLog(taskDir: string, message: string): void {
+  const config = loadConfig(taskDir);
+  if (!config.runLog.enabled) return;
+  const maxLines = 100; // notifier log uses a fixed 100-line trim
+
+  ensureDirs(taskDir);
+
+  const logPath = getNotifierLogPath(taskDir);
   const now = new Date().toISOString();
   const entry = `\n## ${now}\n${message}\n`;
   fs.appendFileSync(logPath, entry, 'utf-8');

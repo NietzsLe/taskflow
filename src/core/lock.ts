@@ -1,7 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { stringify as stringifyYaml, parse as parseYaml } from 'yaml';
-import { LockFile, generateSessionId } from './types';
+import { LockFile } from './types';
+import { generateSessionId } from './session';
+import { validateLockFile } from './validate';
 
 export function getLocksDir(taskDir: string): string {
   return path.join(taskDir, 'locks');
@@ -64,7 +66,8 @@ export function heartbeatLock(lockPath: string): void {
   if (!fs.existsSync(lockPath)) return;
   try {
     const raw = fs.readFileSync(lockPath, 'utf-8');
-    const lock = parseYaml(raw) as LockFile;
+    const lock = validateLockFile(parseYaml(raw));
+    if (!lock) return; // corrupted, skip
     lock.heartbeatAt = new Date().toISOString();
     fs.writeFileSync(lockPath, stringifyYaml(lock), 'utf-8');
   } catch {
@@ -84,7 +87,8 @@ export function isLockStale(lockPath: string, staleThresholdSeconds: number): bo
   if (!fs.existsSync(lockPath)) return false;
   try {
     const raw = fs.readFileSync(lockPath, 'utf-8');
-    const lock = parseYaml(raw) as LockFile;
+    const lock = validateLockFile(parseYaml(raw));
+    if (!lock) return true; // corrupted lock → treat as stale
     const elapsed = (Date.now() - new Date(lock.heartbeatAt).getTime()) / 1000;
     return elapsed > staleThresholdSeconds;
   } catch {
@@ -96,7 +100,7 @@ export function readLock(lockPath: string): LockFile | null {
   if (!fs.existsSync(lockPath)) return null;
   try {
     const raw = fs.readFileSync(lockPath, 'utf-8');
-    return parseYaml(raw) as LockFile;
+    return validateLockFile(parseYaml(raw));
   } catch {
     return null;
   }

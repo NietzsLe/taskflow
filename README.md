@@ -81,7 +81,10 @@ defined ──(user move)──► pending ──(executor)──► processing 
 | From | To | By | Condition |
 |------|----|----|-----------|
 | defined | pending | User | Move task to make it available for executor |
-| pending | processing | Executor | Pick up task, acquire lock |
+| pending | processing | Executor / User | Pick up task, acquire lock (executor) or manual override (user) |
+| pending | testing | User | Manual override |
+| pending | review | User | Manual override |
+| pending | done | User | Manual override |
 | processing | testing | Executor | Implementation done |
 | processing | pending | Executor | Version change detected |
 | processing | blocked | Executor | Has questions, cannot proceed |
@@ -93,6 +96,7 @@ defined ──(user move)──► pending ──(executor)──► processing 
 | blocked | pending | User | Questions resolved |
 | review | done | User | Approve |
 | review | pending | User | Reject |
+| done | _(terminal)_ | — | No transitions out |
 
 ---
 
@@ -194,7 +198,7 @@ versions:
 
 ## Agent Skills
 
-TaskFlow installs 5 skills into `.agents/skills/` during `init`.
+TaskFlow installs 6 skills into `.agents/skills/` during `init`.
 
 | Skill | Location | Purpose |
 |-------|----------|---------|
@@ -288,15 +292,27 @@ Custom instructions/skills/tools do **not** conflict with the framework. The fra
 | Command | Description |
 |---------|-------------|
 | `npx taskflow init` | Scaffold `.tasks/` directory and install skills to `.agents/skills/` |
+| `npx taskflow init --force` | Backup existing `.tasks/` and re-init from scratch |
 | `npx taskflow add <name>` | Create a new task in `defined/` |
-| `npx taskflow list [state]` | List tasks by state (defined, pending, processing, testing, review, done) |
+| `npx taskflow list [state]` | List tasks by state (defined, pending, processing, testing, review, done, blocked) |
 | `npx taskflow status <id>` | Show detailed task info |
 | `npx taskflow edit <id>` | Edit a task (creates new version if in processing/testing) |
-| `npx taskflow move <id> <state>` | Move a task (from defined or pending to another state) |
+| `npx taskflow move <id> <state>` | Move a task (from defined/pending/blocked; `--force` to override lock) |
 | `npx taskflow approve <id>` | Move task from `review/` to `done/` |
-| `npx taskflow reject <id>` | Move task from `review/` back to `pending/` |
+| `npx taskflow reject <id> [-r,--reason <text>]` | Move task from `review/` back to `pending/`; optionally write `blockedReason` |
 | `npx taskflow unlock [id]` | Force release a lock (without args: infra lock) |
 | `npx taskflow unlock --all` | Release all locks |
+| `npx taskflow lock <id> [--infra] [--agent executor|tester]` | Acquire a task or infra lock (for agent use) |
+| `npx taskflow heartbeat <id> [--infra]` | Update heartbeat on a lock (for agent use) |
+| `npx taskflow answer <id> <questionId> <text>` | Answer a pending question on a blocked task |
+| `npx taskflow delete <id>` | Archive a task (move to `.tasks/archive/` with a deletion note) |
+| `npx taskflow doctor` | Run health checks on `.tasks/`, config, locks, and skills |
+| `npx taskflow config [list|get|set]` | View/set config values (e.g. `config get heartbeat.staleThresholdSeconds`) |
+| `npx taskflow skills [list|verify]` | List or verify installed agent skills |
+| `npx taskflow export <id> [-f json|yaml]` | Export a task to stdout |
+| `npx taskflow import <file>` | Import a task from a JSON or YAML file into `defined/` |
+| `npx taskflow clean [--before <date>] [--dry-run]` | Archive done tasks (move to `.tasks/archive/`) |
+| `npx taskflow check-infra [env]` | Check infrastructure services for an environment |
 | `npx taskflow runs` | View run logs (`--task <id>`, `--session <id>`, `--agent <type>`) |
 | `npx taskflow resolve-blocked [id]` | List/resolve blocked tasks with pending questions |
 | `npx taskflow setup-custom <agent>` | Show instructions for configuring custom instructions (executor or tester) |
@@ -327,13 +343,14 @@ Entry format (markdown):
 
 ```markdown
 ### 2026-07-07T10:00:00Z — pickup
-- **Run ID:** run_001
+- **Run ID:** run_20260707_001
 - **Agent:** executor
 - **Session:** abc-123
 - **Task:** login-flow_001 (v2, pending)
 - **Result:** success
 - **Duration:** 300s
-- **Details:** Implemented login form with NextAuth.js...
+
+**Summary:** Picked up task 'login-flow' from pending. Read description and implementation notes. Started implementing NextAuth.js login form.
 ```
 
 ### Trimming
@@ -384,7 +401,7 @@ taskflow/
 │   └── templates/
 │       ├── config.yaml           # Template configuration
 │       ├── task.yaml             # Template task file
-│       └── skills/              # 5 skill markdown files
+│       └── skills/              # 6 skill markdown files
 │           ├── taskflow-init/
 │           ├── taskflow-executor/
 │           ├── taskflow-tester/

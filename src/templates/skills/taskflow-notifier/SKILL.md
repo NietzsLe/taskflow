@@ -87,7 +87,7 @@ For each channel where `enabled: true`:
 
 ### Step 5: Log
 
-Write to `.tasks/runs/notifier-log.md`:
+Write to `.tasks/runs/notifier-log.md`. You can use the `appendNotifierLog` helper from `src/core/runlog.ts` if calling via code, or write directly with `fs.appendFileSync`:
 
 ```markdown
 ## <timestamp>
@@ -101,6 +101,8 @@ If no blocked tasks:
 ## <timestamp>
 - No blocked tasks found.
 ```
+
+> The notifier log is trimmed to the last 100 lines automatically.
 
 ## 4. Usage with /loop
 

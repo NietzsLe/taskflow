@@ -7,6 +7,8 @@ description: Help users interact with the task system. List, add, edit, approve,
 
 Instructions for the agent assisting the user with the task system. The user speaks commands, and the agent reads this skill to know how to respond.
 
+> **Source of truth:** This skill mirrors the actual CLI in `src/cli.ts` and the state machine in `src/core/state.ts`. When in doubt, the code wins — but please report the discrepancy so this doc can be fixed.
+
 ---
 
 ## 1. TaskFlow Framework Overview
@@ -30,55 +32,117 @@ defined ──(user move)──► pending ──(executor)──► processing 
 
 ### 1.2 Transition Rules
 
+The authoritative transition table lives in `src/core/state.ts` (`VALID_TRANSITIONS`). Actor is who is allowed to perform the move.
+
 | From | To | Performed by | Condition |
 |------|----|-------------|-----------|
-| defined | pending | User | Move task to make it available for executor |
-| pending | processing | Executor | Pick up task, acquire lock |
-| processing | testing | Executor | Code done, self-triage |
-| processing | pending | Executor | Version change → release lock |
-| testing | review | Tester | All flows pass (passRatio >= 1.0) |
-| testing | processing | Tester | Flow fails → update task with bug info |
-| review | done | User | Approve |
-| review | pending | User | Reject |
-| pending | pending | User | Edit task → version++ |
-| defined | defined | User | Edit task → version++ |
-| processing | blocked | Executor | Has questions, cannot proceed |
-| testing | blocked | Tester | Has questions, cannot proceed |
-| blocked | processing | User | Questions resolved, return to processing |
-| blocked | testing | User | Questions resolved, return to testing |
-| blocked | pending | User | Questions resolved, return to pending |
+| defined | pending | user | Move task to make it available for executor |
+| pending | processing | executor **or** user | Pick up task (executor) / manual override (user) |
+| pending | testing | user | Manual override |
+| pending | review | user | Manual override |
+| pending | done | user | Manual override |
+| processing | testing | executor | Code done, self-triage |
+| processing | pending | executor | Version change detected → release lock |
+| processing | blocked | executor | Has questions, cannot proceed |
+| testing | review | tester | All flows pass (passRatio >= required) |
+| testing | processing | tester | Flow fails → update task with bug info |
+| testing | blocked | tester | Has questions, cannot proceed |
+| blocked | processing | user | Questions resolved, return to processing |
+| blocked | testing | user | Questions resolved, return to testing |
+| blocked | pending | user | Questions resolved, return to pending |
+| review | done | user | Approve |
+| review | pending | user | Reject |
+| done | _(none)_ | — | Terminal state |
+
+Notes:
+- `done` is terminal — it cannot transition to anything.
+- The CLI validates BOTH the `allowMoveFromStates` gate AND `validateTransition`. A `move` is only accepted if the current state is in `config.user.allowMoveFromStates` **and** the `from → to` pair is listed above for actor `user`.
 
 ### 1.3 Lock Mechanism
 
-- **File-based mutex lock** (create-exclusive: `O_CREAT | O_EXCL`)
-- Only acquired when task is in `processing` or `testing`
-- Heartbeat interval: `config.heartbeat.intervalSeconds` (default 60s)
-- Stale threshold: `config.heartbeat.staleThresholdSeconds` (default 120s)
-- Lock-releaser agent runs a cleanup loop for stale locks
-- Agent must release lock when: transitioning state, version change detected, session ends
+- **File-based mutex lock** (`fs.openSync(path, 'wx')` ≡ `O_CREAT | O_EXCL` — create-exclusive). Implemented in `src/core/lock.ts`.
+- Two lock kinds:
+  - **Task lock** — `.tasks/locks/task-<id>.lock` — prevents two sessions from working on the same task.
+  - **Infra lock** — `.tasks/locks/infra.lock` — ensures only one tester runs against the dev infrastructure at a time.
+- Only acquired when task is in `processing` or `testing`.
+- Heartbeat interval: `config.heartbeat.intervalSeconds` (default 60s).
+- Stale threshold: `config.heartbeat.staleThresholdSeconds` (default 120s) — a lock with no heartbeat for this long is considered stale.
+- `lockReleaserIntervalSeconds` (default 60s) — how often the lock-releaser agent runs its cleanup loop.
+- Lock-releaser agent reaps stale locks; the user can also force-release via `taskflow unlock`.
+- Agent must release lock when: transitioning state, version change detected, session ends.
 
 ### 1.4 Versioning
 
-- When editing a task in `processing` or `testing`:
-  1. Snapshot current `description`, `implementationNotes`, `testFlows` into `versions.v<old>`
-  2. Brainstorm with user
-  3. Update task, bump version, reset testResults
-  4. Move file to `pending/`
-- When editing a task in `pending`: directly, no snapshot needed
+Implemented in `src/edit.ts` (`editTask`).
+
+- Editing a task in `processing` or `testing`:
+  1. Snapshot current `description`, `implementationNotes`, `testFlows` into `versions.v<old>`.
+  2. Apply the new field values.
+  3. Bump `version` (`version += 1`), set `updatedAt`.
+  4. Reset `testResults` (all flows → `pass: false`, `passRatio: 0.0`).
+  5. Delete `bugs` and `blockedReason` (a new version invalidates old bug/blocked context).
+  6. Move the file back to `pending/`.
+- Editing a task in `defined` or `pending`: applied in place, `version++`, `testResults` reset if `testFlows` exist. No snapshot, no move.
+- Editing a task in `done`: **rejected** — "Cannot edit a done task. Create a new task instead."
+- Editing a task in `review`: **rejected** — "Task is in review. Reject it first, then edit."
 
 ### 1.5 Run Log
 
-- Every action is recorded in `.tasks/runs/YYYY-MM-DD.yaml`
-- 15 action types: pickup, implement-done, implement-blocked, implement-stale, test-start, test-flow-pass, test-flow-fail, test-done, test-fail, test-stale, approve, reject, edit, add, move
-- View with: `npx taskflow runs [--date] [--task] [--agent]`
+Implemented in `src/core/runlog.ts`. Every agent/user action is appended in Markdown to **two** places:
 
-### 1.6 Custom Instructions
+- `.tasks/runs/sessions/<sessionId>.md` — all actions by a specific agent session.
+- `.tasks/runs/tasks/<taskId>.md` — full history of a specific task across sessions.
 
-- Users can add custom instructions in `config.executor.customInstructions` and `config.tester.customInstructions`
-- These do not conflict with the framework — the framework orchestrates, custom instructions guide agent behavior
-- Users can also add custom skills (`customSkills`) and custom tools (`customTools`)
+Supporting files:
+- `.tasks/runs/.seq` — global run counter (produces `runId` like `run_20260708_001`).
+- `.tasks/runs/releaser-log.md` — lock-releaser log.
 
-### 1.7 Blocked State
+Each entry is a Markdown block with: timestamp, action, runId, agent, session, task (version + state), result, duration, and optional summary/error/details.
+
+> The `action` field is a free-form string set by the caller — there is no fixed enum of 15 types. Actions emitted by the CLI today include: `add`, `edit`, `move`, `approve`, `reject`, `resolve-blocked`. Executor/tester/releaser agents emit their own action names (e.g. `pickup`, `test-flow-fail`) — see those skills for the full list.
+
+Trimming (from `config.runLog`):
+- `maxTaskLogLines` (default 500) — each task log is trimmed to the last N lines.
+- `maxSessionLogLines` (default 500) — each session log is trimmed to the last N lines.
+- `maxSessionFiles` (default 50) — oldest session files beyond this count are deleted.
+- `maxReleaserLogLines` (default 100).
+- `enabled` (default true) — when false, no run logs are written and `runs` returns "Run log is disabled".
+
+View with:
+
+```bash
+npx taskflow runs                       # list recent sessions (10 most recent)
+npx taskflow runs --task <id>           # full history for a task
+npx taskflow runs --session <id>        # all actions in a session
+npx taskflow runs --agent <type>        # filter sessions by agent type (executor|tester|user|lock-releaser)
+```
+
+> Note: there is **no** `--date` flag. Filtering is by task, session, or agent type only.
+
+### 1.6 Configuration (`config.yaml`)
+
+File: `.tasks/config.yaml` (template in `src/templates/config.yaml`, defaults in `src/core/config.ts`). The user can edit it directly to tune the system:
+
+| Section | Purpose |
+|---------|---------|
+| `system` | Name, version, `projectRoot`, `taskDir` (default `.tasks`). |
+| `heartbeat` | `intervalSeconds`, `jitterSeconds`, `staleThresholdSeconds`, `lockReleaserIntervalSeconds`. |
+| `lock` | `acquireMode: create-exclusive`, `releaseMode: delete-file`. |
+| `test` | `passRatioRequired` (default 1.0), `maxRetriesPerFlow`, `infraLockRequired`, `skipPassedFlows`, `warnNoBrowserMCP`. |
+| `browserMCP` | List of connected browser-automation MCP tools the tester may use (e.g. `playwriter`). The agent must already have the MCP connected; this config only declares which are available. |
+| `infrastructure.environments.<env>.services[]` | Services required for a test environment (name, type `docker|process|remote`, health `check`, `setup`, `required`). The tester reads this to know what to bring up / verify. |
+| `runLog` | `enabled` + the four trimming limits above. |
+| `executor` / `tester` | `customInstructions`, `customSkills`, `customTools`, plus pickup/limits for executor. |
+| `user` | `allowMoveFromStates` (default `["defined","pending","blocked"]`) and `requireVersioningForActive`. |
+| `notification` | Channels (console/file/webhook/email/custom), `blockedCheckIntervalSeconds`, `messageTemplate`. Read by the `taskflow-notifier` skill. |
+
+Missing config falls back to defaults via `deepMergeConfig`, so partial configs are safe.
+
+### 1.7 Custom Instructions
+
+Users can add custom instructions in `config.executor.customInstructions` and `config.tester.customInstructions`. These do not conflict with the framework — the framework orchestrates (lock, state, run log), custom instructions guide agent behavior. Users can also add custom skills (`customSkills`) and custom tools (`customTools`).
+
+### 1.8 Blocked State
 
 When an executor or tester encounters questions it cannot resolve, the task moves to `blocked/`. The task YAML stores:
 
@@ -94,103 +158,141 @@ pendingQuestions:
     answered: false
 ```
 
-A notifier agent sends alerts through configured channels. The user resolves questions via `resolve-blocked` command, which moves the task back to its `previousState`.
-
-### 1.8 Run Log Summaries
-
-Every run log entry includes a `summary` field — a natural language description of what the agent actually did. This helps humans understand what happened without reading code or YAML. View summaries with:
-
-```bash
-npx taskflow runs --task <id>      # Task history with summaries
-npx taskflow runs --session <id>   # Session history with summaries
-```
+The `taskflow-notifier` skill sends alerts through the configured `notification.channels`. The user resolves questions via `resolve-blocked` (see 2.7), which moves the task back to its `previousState` once all questions are answered.
 
 ### 1.9 Available Skills
 
+Installed by `taskflow init` into `.agents/skills/` (see `src/init.ts`):
+
 | Skill | Role |
 |-------|------|
+| `taskflow-init` | Bootstrap the framework into a project |
 | `taskflow-executor` | Pick tasks from pending, implement, move to testing |
 | `taskflow-tester` | Pick tasks from testing, run test flows, move to review or back to processing |
-| `taskflow-lock-releaser` | Loop to clean up stale locks |
+| `taskflow-lock-releaser` | Run one cleanup cycle to reap stale locks |
+| `taskflow-notifier` | Run one check cycle to alert the user about blocked tasks |
 | `taskflow-user` | (This skill) Help the user interact |
-| `taskflow-init` | Bootstrap the framework into a project |
 | *Custom skills* | User-defined in `executor.customSkills` / `tester.customSkills` |
 
 ---
 
 ## 2. User Commands
 
+All commands are run as `npx taskflow <command>`. Valid states accepted by the CLI: `defined, pending, processing, testing, review, done, blocked`. Valid agent types: `executor, tester, user, lock-releaser`.
+
 ### 2.1 `list [state]` — View task list
 
-Read `.tasks/<state>/` and list all `.yaml` files. Valid states: `defined`, `pending`, `processing`, `testing`, `review`, `done`.
+Read `.tasks/<state>/` and list all `.yaml` files. Valid states: `defined`, `pending`, `processing`, `testing`, `review`, `done`, `blocked`. Omit `[state]` to list across all states, grouped by state.
 
-Display: ID, Name, Version, UpdatedAt, passRatio (if testing).
+Each row shows: ID, name, version, and `passRatio` (when the task is in `testing`).
 
 ### 2.2 `add <name>` — Create a new task
 
-1. Brainstorm with the user to clarify: description, implementationNotes, testFlows
-2. Create YAML file in `.tasks/defined/` with format `YYYY-MM-DD_<slug>_<seq>.yaml`
-3. Task is created in `defined` state — NOT available for executor pickup
-4. User must `move <id> pending` to make it available for executor
-5. Write run log action `add`
+1. (Recommended) Brainstorm with the user to clarify the intended `description`, `implementationNotes`, and `testFlows`.
+2. Create the YAML file in `.tasks/defined/` named `YYYY-MM-DD_<slug>_<seq>.yaml`.
+3. The task is created in `defined` state with `version: 1` and an **empty `description`** — it is NOT available for executor pickup and has no details yet.
+4. Follow up with `edit <id> -d "..." -i "..." -t '[...]'` to fill in the description / implementation notes / test flows.
+5. Then `move <id> pending` to make it available for executor pickup.
+6. A run-log entry with action `add` is written.
 
 ### 2.3 `edit <id>` — Edit a task
 
-**If task is in defined or pending:**
-1. Brainstorm with the user about changes
-2. Update task YAML, bump `version++`
-3. Reset `testResults` if `testFlows` exist
-4. Write run log action `edit`
+CLI flags (all optional; only provided fields are changed):
 
-**If task is in processing or testing (versioning flow):**
-1. Snapshot current `description`, `implementationNotes`, `testFlows` into `versions.v<old>`
-2. Brainstorm with the user
-3. Update task YAML, bump `version++`, reset `testResults`
-4. Move file to `pending/`
-5. Write run log action `edit`
+```
+npx taskflow edit <id> -d, --description <text>
+                       -i, --implementation-notes <text>
+                       -t, --test-flows <json-array>
+```
+
+`--test-flows` expects a JSON array, e.g.:
+```bash
+npx taskflow edit <id> -t '[{"name":"Happy path","steps":"1. Open /login\n2. ..."}]'
+```
+
+Behaviour by current state:
+- **defined / pending** — apply changes in place, `version++`, reset `testResults` if `testFlows` exist.
+- **processing / testing** — snapshot old fields into `versions.v<old>`, apply changes, `version++`, reset `testResults`, delete `bugs` and `blockedReason`, then move the file back to `pending/`.
+- **done** — rejected: "Cannot edit a done task. Create a new task instead."
+- **review** — rejected: "Task is in review. Reject it first, then edit."
+
+If no field actually changed (value equals the current value), the task is not modified.
 
 ### 2.4 `approve <id>` — Approve a task
 
-1. Verify task is in `review/`
-2. Move `review/` → `done/`
-3. Write run log action `approve`
+1. Verify task is in `review/` (else error).
+2. Move `review/` → `done/`.
+3. Write run-log action `approve`.
 
 ### 2.5 `reject <id>` — Reject a task
 
-1. Verify task is in `review/`
-2. Brainstorm the reason for rejection
-3. Write `blockedReason` into the task YAML
-4. Move `review/` → `pending/`
-5. Write run log action `reject`
+```
+npx taskflow reject <id> [--reason <text>]
+```
+
+1. Verify task is in `review/` (else error).
+2. If `--reason <text>` is provided, write it into the task's `blockedReason` field so the next executor knows why it was sent back.
+3. Move `review/` → `pending/`.
+4. Write run-log action `reject`.
 
 ### 2.6 `move <id> <state>` — Manually move a task
 
 **Rules:**
-- Only allowed from states in `config.user.allowMoveFromStates` (default: `defined`, `pending`)
-- Other states must go through proper transitions
-- Common use: `move <id> pending` to make a `defined` task available for executor pickup
+- The current state must be in `config.user.allowMoveFromStates` (default: `defined`, `pending`, `blocked`). Otherwise the CLI rejects with "Move is only allowed from: ...".
+- The `from → to` pair must be a valid user transition in `VALID_TRANSITIONS` (see 1.2). For example `defined → pending` is allowed, but `defined → done` is not.
+- Common use: `move <id> pending` to make a `defined` task available for executor pickup; `move <id> processing|testing|pending` to unblock a resolved `blocked` task (though `resolve-blocked` is usually the better path).
 
 ### 2.7 `resolve-blocked [id]` — Resolve blocked tasks
 
-List all blocked tasks (or a specific task by ID) with their pending questions:
+List blocked tasks (or one by ID) with their pending questions:
 
-1. Read `.tasks/blocked/` for blocked tasks
-2. Display task name, previous state, and all unanswered questions grouped by category
-3. To resolve: edit the task YAML, set `answered: true` and provide `answer` for each question
-4. Run `npx taskflow resolve-blocked <id>` again — if all questions answered, task moves back to `previousState`
-5. Write run log action `resolve-blocked` with summary
+1. Read `.tasks/blocked/`.
+2. Print task name, previous state, and all unanswered questions grouped by id/category.
+3. To resolve: edit the task YAML and set `answered: true` (plus an `answer`) for each question. (There is no `answer` sub-command today — direct YAML edit is required.)
+4. Run `npx taskflow resolve-blocked <id>` again. If all questions are now answered, the task is automatically moved back to its `previousState` and a run-log entry (action `resolve-blocked`, with summary) is written.
+5. If the task has no `pendingQuestions` at all, running this command also moves it back to `previousState`.
 
-### 2.8 `setup-custom <executor|tester>` — Configure custom instructions
+### 2.8 `status <id>` — Show task detail
 
-1. Ask: "What instructions would you like to add for [executor|tester]?"
-2. Record the content, update `config.yaml`
-3. If the user wants custom skills:
-   - Ask for skill name and description
-   - Create `.agents/skills/<name>/SKILL.md` with a basic template
-   - Update the path in config
-4. If the user wants custom tools:
-   - Ask for tool name and type (MCP, script, etc.)
-   - Update config
+Prints: id, name, current state, version, createdAt, updatedAt, description (truncated to 100 chars), `passRatio` (if present), lock holder (sessionId + agentType) and heartbeat (if locked), `blockedReason` (truncated to 200 chars), and any `bugs` (flow + description).
+
+Use this when the user wants more than the one-line `list` view — e.g. to check who holds the lock, why a task is blocked, or what bugs were filed.
+
+### 2.9 `unlock [id] [--all]` — Force-release locks
+
+| Invocation | Effect |
+|------------|--------|
+| `npx taskflow unlock` | Release the infra lock (`.tasks/locks/infra.lock`). |
+| `npx taskflow unlock <id>` | Release the task lock for `<id>` (`.tasks/locks/task-<id>.lock`). |
+| `npx taskflow unlock --all` | Release every `.lock` file in `.tasks/locks/`. |
+
+Use when a lock is stale and the lock-releaser hasn't reaped it yet, or after an agent crash. Prefer letting the lock-releaser handle stale locks automatically; use `unlock` only for manual recovery.
+
+### 2.10 `runs` — View run logs
+
+See section 1.5 for the underlying files and flags:
+
+```bash
+npx taskflow runs
+npx taskflow runs --task <id>
+npx taskflow runs --session <id>
+npx taskflow runs --agent executor|tester|user|lock-releaser
+```
+
+If `config.runLog.enabled` is false, prints "Run log is disabled in config."
+
+### 2.11 `setup-custom <executor|tester>` — Configure custom instructions
+
+Prints step-by-step instructions for editing `.tasks/config.yaml` to add `customInstructions`, `customSkills`, and `customTools` for the chosen agent. Argument must be `executor` or `tester`.
+
+### 2.12 `init` — Bootstrap TaskFlow
+
+```
+npx taskflow init              # scaffold .tasks/ + install skills to .agents/skills/
+npx taskflow init --no-skills  # scaffold .tasks/ only
+```
+
+Creates the state directories, `locks/`, `runs/`, copies `config.yaml`, and (unless `--no-skills`) copies the skill files into `.agents/skills/`. Will not overwrite an existing `config.yaml` or skill file.
 
 ---
 
@@ -198,18 +300,20 @@ List all blocked tasks (or a specific task by ID) with their pending questions:
 
 | Rule | Description |
 |------|-------------|
-| **Only edit pending directly** | Tasks in processing/testing must go through versioning |
-| **Versioning is mandatory** | When editing an active task, snapshot the old version |
-| **Reset testResults** | When version changes, testResults must be reset |
-| **Do not skip review** | Tasks must go through review before reaching done |
-| **Do not force unlock** | Use `taskflow unlock` CLI if necessary |
-| **Custom instructions do not replace the framework** | The framework orchestrates (lock, state, run log), custom instructions guide the agent on how to do the task |
+| **Only edit defined/pending in place** | Tasks in processing/testing must go through the versioning flow (snapshot + move to pending). |
+| **Versioning is mandatory for active tasks** | When editing a processing/testing task, the old version is snapshotted. |
+| **Reset testResults on version change** | A version bump always resets `testResults` (and clears `bugs`/`blockedReason`). |
+| **Do not skip review** | Tasks must go through `review` before reaching `done` (only the user can move `review → done`). |
+| **Prefer the lock-releaser over manual unlock** | Use `taskflow unlock` only for manual recovery; the framework reaps stale locks automatically. |
+| **Custom instructions do not replace the framework** | The framework orchestrates (lock, state, run log); custom instructions only guide how the agent does the task. |
 
 ## 4. Special Cases
 
 | Situation | Action |
 |-----------|--------|
-| User wants to edit a done task | Create a new task with version 1, do not modify the old one |
-| User wants to delete a task | Move to `.tasks/done/` with a "deleted by user" note |
-| User does not remember the ID | Use `list` to view, copy the ID from there |
-| User wants custom instructions but is unsure what to add | Suggest common use cases: use brainstorming, reference docs, run lint, take screenshots on test failure, check logs... |
+| User wants to edit a `done` task | Create a new task (`add`) instead — editing `done` is rejected by the CLI. |
+| User wants to edit a `review` task | `reject` it first (back to `pending`), then `edit`. Editing `review` is rejected by the CLI. |
+| User wants to "delete" a task | Move it to `.tasks/done/` with a "deleted by user" note (there is no `delete` command). |
+| User does not remember the ID | Use `list [state]` to find it, or `status <id>` once known. |
+| User wants custom instructions but is unsure what to add | Suggest common use cases: use brainstorming, reference docs, run lint, take screenshots on test failure, check logs. Use `setup-custom` for the exact steps. |
+| User reports a stuck task | Run `status <id>` to see the lock holder + heartbeat; if stale, `unlock <id>` (or `unlock` for infra). |

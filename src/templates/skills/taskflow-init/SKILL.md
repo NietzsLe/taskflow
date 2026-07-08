@@ -34,6 +34,8 @@ Install TaskFlow into a project: check prerequisites, run init, configure, verif
 ```bash
 cd <project-directory>
 npx taskflow init
+# To re-init and backup existing .tasks/:
+npx taskflow init --force
 ```
 
 **Expected output:**
@@ -45,9 +47,12 @@ Created:
   .tasks/testing/
   .tasks/review/
   .tasks/done/
+  .tasks/blocked/
+  .tasks/archive/
   .tasks/locks/
   .tasks/runs/
   .tasks/config.yaml
+  .tasks/.gitignore
   .tasks/runs/releaser-log.md
 
 Skills installed:
@@ -56,6 +61,7 @@ Skills installed:
   .agents/skills/taskflow-lock-releaser/SKILL.md
   .agents/skills/taskflow-user/SKILL.md
   .agents/skills/taskflow-init/SKILL.md
+  .agents/skills/taskflow-notifier/SKILL.md
 ```
 
 ### Step 3: Configure system

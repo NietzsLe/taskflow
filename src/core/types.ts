@@ -1,5 +1,3 @@
-import { v4 as uuidv4 } from 'uuid';
-
 export interface TaskYaml {
   id: string;
   name: string;
@@ -13,7 +11,7 @@ export interface TaskYaml {
   versions?: Record<string, VersionSnapshot>;
   bugs?: Bug[];
   blockedReason?: string;
-  previousState?: string;
+  previousState?: TaskState;
   pendingQuestions?: PendingQuestion[];
 }
 
@@ -65,7 +63,7 @@ export interface LockFile {
 export interface RunLogEntry {
   runId: string;
   timestamp: string;
-  agentType: 'executor' | 'tester' | 'user' | 'lock-releaser';
+  agentType: 'executor' | 'tester' | 'user' | 'lock-releaser' | 'notifier';
   sessionId: string;
   agentName: string | null;
   taskId: string;
@@ -82,6 +80,7 @@ export interface RunLogEntry {
 
 export type TaskState = 'defined' | 'pending' | 'processing' | 'testing' | 'review' | 'done' | 'blocked';
 
-export function generateSessionId(): string {
-  return uuidv4();
-}
+export const VALID_STATES: TaskState[] = ['defined', 'pending', 'processing', 'testing', 'review', 'done', 'blocked'];
+
+export const VALID_AGENTS = ['executor', 'tester', 'user', 'lock-releaser', 'notifier'] as const;
+export type AgentType = typeof VALID_AGENTS[number];

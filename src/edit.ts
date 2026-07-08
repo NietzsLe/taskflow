@@ -1,8 +1,10 @@
 import * as fs from 'fs';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { TaskYaml } from './core/types';
-import { getTaskState, getTaskFilePath, moveTask } from './core/state';
+import { getTaskState, getTaskFilePath, moveTask, TaskLockedError } from './core/state';
 import { appendRunLog } from './core/runlog';
+import { isTaskLocked } from './core/lock';
+import { validateTaskYaml } from './core/validate';
 
 export function editTask(
   taskDir: string,
@@ -11,7 +13,8 @@ export function editTask(
     description?: string;
     implementationNotes?: string;
     testFlows?: { name: string; environment?: string; steps: string }[];
-  }
+  },
+  options?: { force?: boolean }
 ): void {
   const filePath = getTaskFilePath(taskDir, taskId);
   if (!filePath) {
@@ -19,8 +22,13 @@ export function editTask(
     process.exit(1);
   }
 
+  // A3: check lock before editing (unless --force)
+  if (!options?.force && isTaskLocked(taskDir, taskId)) {
+    throw new TaskLockedError(taskId);
+  }
+
   const raw = fs.readFileSync(filePath, 'utf-8');
-  const task = parseYaml(raw) as TaskYaml;
+  const task = validateTaskYaml(parseYaml(raw));
   const currentState = getTaskState(taskDir, taskId);
 
   if (currentState === 'done') {
@@ -98,7 +106,7 @@ export function editTask(
   });
 
   if (currentState === 'processing' || currentState === 'testing') {
-    if (!moveTask(taskDir, taskId, 'pending')) {
+    if (!moveTask(taskDir, taskId, 'pending', { force: options?.force })) {
       console.error(`Task '${taskId}' updated to v${task.version} but failed to move to pending. Manual intervention needed.`);
     } else {
       console.log(`Task '${taskId}' updated to v${task.version} and moved to pending.`);

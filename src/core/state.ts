@@ -2,9 +2,16 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { TaskState } from './types';
 
-const STATE_DIRS: TaskState[] = ['defined', 'pending', 'processing', 'testing', 'review', 'done', 'blocked'];
+export const STATE_DIRS: TaskState[] = ['defined', 'pending', 'processing', 'testing', 'review', 'done', 'blocked'];
 
 export type Actor = 'executor' | 'tester' | 'user';
+
+export class TaskLockedError extends Error {
+  constructor(public taskId: string) {
+    super(`Task '${taskId}' is locked. Use --force to override.`);
+    this.name = 'TaskLockedError';
+  }
+}
 
 export const VALID_TRANSITIONS: Record<TaskState, { to: TaskState; actor: Actor }[]> = {
   defined:    [{ to: 'pending', actor: 'user' }],
@@ -20,6 +27,11 @@ export const VALID_TRANSITIONS: Record<TaskState, { to: TaskState; actor: Actor 
 export function validateTransition(from: TaskState, to: TaskState, actor: Actor): boolean {
   const allowed = VALID_TRANSITIONS[from] || [];
   return allowed.some(t => t.to === to && t.actor === actor);
+}
+
+export function getValidTransitions(from: TaskState, actor: Actor): TaskState[] {
+  const allowed = VALID_TRANSITIONS[from] || [];
+  return allowed.filter(t => t.actor === actor).map(t => t.to);
 }
 
 export function getStateDir(taskDir: string, state: TaskState): string {
@@ -73,9 +85,16 @@ export function getTaskFilePath(taskDir: string, taskId: string): string | null 
   return null;
 }
 
-export function moveTask(taskDir: string, taskId: string, toState: TaskState): boolean {
+export function moveTask(taskDir: string, taskId: string, toState: TaskState, options?: { force?: boolean }): boolean {
   const currentPath = getTaskFilePath(taskDir, taskId);
   if (!currentPath) return false;
+  // A2: check lock unless --force
+  if (!options?.force) {
+    const lockPath = path.join(taskDir, 'locks', `task-${taskId}.lock`);
+    if (fs.existsSync(lockPath)) {
+      throw new TaskLockedError(taskId);
+    }
+  }
   const filename = path.basename(currentPath);
   const destPath = path.join(getStateDir(taskDir, toState), filename);
   try {
@@ -87,6 +106,7 @@ export function moveTask(taskDir: string, taskId: string, toState: TaskState): b
       fs.unlinkSync(currentPath);
       return true;
     }
+    if (err instanceof TaskLockedError) throw err;
     return false;
   }
 }
@@ -103,17 +123,25 @@ export function listTasks(taskDir: string, state?: TaskState): { id: string; sta
       result.push({ id, state: s, filename: f });
     }
   }
+  // Sort by id for stable output (A6)
+  result.sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   return result;
 }
 
 export function getNextSeq(taskDir: string, datePrefix: string): number {
-  const definedDir = getStateDir(taskDir, 'defined');
-  if (!fs.existsSync(definedDir)) return 1;
-  const files = fs.readdirSync(definedDir).filter(f => f.startsWith(datePrefix));
-  if (files.length === 0) return 1;
-  const seqs = files.map(f => {
-    const match = f.match(/_(\d+)\.yaml$/);
-    return match ? parseInt(match[1], 10) : 0;
-  });
-  return Math.max(...seqs) + 1;
+  // Scan all state dirs to ensure unique seq across the whole framework (A5).
+  let maxSeq = 0;
+  for (const s of STATE_DIRS) {
+    const dirPath = getStateDir(taskDir, s);
+    if (!fs.existsSync(dirPath)) continue;
+    const files = fs.readdirSync(dirPath).filter(f => f.startsWith(datePrefix));
+    for (const f of files) {
+      const match = f.match(/_(\d+)\.yaml$/);
+      if (match) {
+        const seq = parseInt(match[1], 10);
+        if (seq > maxSeq) maxSeq = seq;
+      }
+    }
+  }
+  return maxSeq + 1;
 }
