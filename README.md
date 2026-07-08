@@ -176,7 +176,33 @@ Lock acquisition uses `O_CREAT | O_EXCL` (create-exclusive) for atomicity.
 
 ## Notifications
 
-TaskFlow sends notifications when a task enters the `blocked/` state (an agent encountered questions it cannot resolve). The notifier agent reads `.tasks/config.yaml` and sends alerts through **all enabled channels**.
+The notifier agent runs periodic check cycles to detect task state changes and notify the user. Each cycle:
+
+1. It reads `.tasks/config.yaml` to discover all notification channels
+2. It builds a JSON snapshot of every task's state, version, bounce count, lock status, etc.
+3. It compares against the previous snapshot (stored in `.tasks/runs/notifier-state.json`)
+4. It formats a report with:
+   - **Summary** for normal changes (transitions, new tasks, version bumps, resolved blocks)
+   - **Detailed** for issues (newly blocked tasks with questions, bounce threshold hits, stale locks)
+5. It sends the report through all enabled notification channels
+6. It saves the new snapshot for the next cycle
+
+### First run
+
+On the first run (no previous snapshot), the notifier reports ALL existing tasks as "new" and sends an initial framework overview.
+
+### Detected changes
+
+| Change | Detail level |
+|--------|-------------|
+| Task state transition | Summary |
+| New task created | Summary |
+| Task removed (archived) | Summary |
+| Version bump | Summary |
+| Resolved block | Summary |
+| Newly blocked | Detailed (questions, context, run log) |
+| Bounce threshold hit | Detailed (bounce count, max, bug history) |
+| Stale lock | Detailed (session ID, elapsed seconds) |
 
 ### Active channels only
 
@@ -213,7 +239,7 @@ The `name` field is optional but strongly recommended when you have more than on
 |------|---------|--------------|
 | `console` | enabled | Prints to terminal |
 | `file` | enabled | Appends to file (`path` field) |
-| `webhook` | disabled | HTTP POST to `url` with `format` (slack/discord/teams/generic) |
+| `webhook` | disabled | HTTP POST to `url` with format (slack/discord/teams/generic) |
 | `email` | disabled | SMTP send (`smtpHost`, `smtpPort`, `smtpUser`, `smtpPassword`, `from`, `to`) |
 | `custom` | disabled | Agent reads `guide` and follows the custom instructions |
 
@@ -246,6 +272,22 @@ Secrets (SMTP passwords, webhook URLs) can be referenced via `${ENV_VAR}` or `${
   smtpPassword: ${TF_SMTP_PASS}
   # ...
 ```
+
+### CLI
+
+Run the notifier on-demand:
+
+```bash
+npx taskflow notify              # Run one check cycle
+npx taskflow notify --dry-run    # Show report without sending
+npx taskflow notify --reset      # Clear snapshot (next run reports all as new)
+```
+
+### Run log
+
+Notifier cycles are recorded in two places:
+- `.tasks/runs/notifier-log.md` — dedicated notifier log
+- `.tasks/runs/sessions/` — main run log (filter with `npx taskflow runs --agent notifier`)
 
 ---
 
@@ -336,7 +378,7 @@ TaskFlow installs 6 skills into `.agents/skills/` during `init`. These are the *
 | `taskflow-executor` | `.agents/skills/` | Pick pending tasks, implement, move to testing |
 | `taskflow-tester` | `.agents/skills/` | Pick testing tasks, run flows, move to review or back |
 | `taskflow-lock-releaser` | `.agents/skills/` | Run one check cycle to clean up stale locks |
-| `taskflow-notifier` | `.agents/skills/` | Run one check cycle, notify user about blocked tasks |
+| `taskflow-notifier` | `.agents/skills/` | Run one check cycle to detect task state changes and notify the user |
 | `taskflow-user` | `.agents/skills/` | Help the user interact with the system |
 
 ### How to use
@@ -426,7 +468,7 @@ Custom instructions/skills/tools do **not** conflict with the framework. The fra
 | `npx taskflow add <name>` | Create a new task in `defined/` |
 | `npx taskflow list [state]` | List tasks by state (defined, pending, processing, testing, review, done, blocked) |
 | `npx taskflow status <id>` | Show detailed task info |
-| `npx taskflow edit <id>` | Edit a task (creates new version if in processing/testing) |
+| `npx taskflow edit <id>` | Edit a task (always creates new version snapshot) |
 | `npx taskflow move <id> <state>` | Move a task (from defined/pending/blocked; `--force` to override lock) |
 | `npx taskflow approve <id>` | Move task from `review/` to `done/` |
 | `npx taskflow reject <id> [-r,--reason <text>]` | Move task from `review/` back to `pending/`; optionally write `blockedReason` |
@@ -458,14 +500,39 @@ Custom instructions/skills/tools do **not** conflict with the framework. The fra
 
 ## Versioning
 
-When a user edits a task that is in `processing` or `testing`:
+Every task edit creates a version snapshot, regardless of the task's current state. This ensures no data is ever lost.
 
-1. The current `description`, `implementationNotes`, and `testFlows` are snapshotted into `versions.v<old>`
-2. The agent brainstorms with the user to clarify the new requirements
-3. The task is updated, `version` is bumped, `testResults` are reset
-4. The file is moved back to `pending/`
+### How it works
 
-Agents periodically check the task version. If it changes while they are working, they release the lock and move on.
+1. When a user edits a task, the current `description`, `implementationNotes`, `testFlows`, and `bounceCount` are snapshotted into `versions.v<old>`
+2. The edit's `changeDescription` (a human-readable reason) is recorded in the snapshot
+3. The `version` field is incremented
+4. `testResults` are reset
+5. If the task was in `processing` or `testing`, it is moved back to `pending`
+
+Processing status updates (`statusDescription`, `lastAgentSummary`, `lastAgentAction`, `attemptCount`, `bounceCount`) do NOT trigger versioning — they are metadata-only updates.
+
+### Change description
+
+When editing a task, use the `--change-description` flag to record why:
+
+```bash
+npx taskflow edit login-flow_001 -d "..." -c "Updated test flows for edge cases"
+```
+
+The change description is stored in the version snapshot and visible in `taskflow diff`.
+
+### Viewing version history
+
+```bash
+npx taskflow diff <id>              # Compare latest snapshot vs current
+npx taskflow diff <id> v1 v2        # Compare two specific versions
+npx taskflow rollback <id> v1       # Rollback to a previous version
+```
+
+### Version change detection
+
+Agents periodically check the task version. If it changes while they are working (a user edited the task), they release the lock and move on. This prevents conflicts between user edits and agent work.
 
 ---
 
