@@ -13,6 +13,7 @@ export function editTask(
     description?: string;
     implementationNotes?: string;
     testFlows?: { name: string; environment?: string; steps: string }[];
+    changeDescription?: string;
   },
   options?: { force?: boolean }
 ): void {
@@ -58,18 +59,17 @@ export function editTask(
     return;
   }
 
-  if (currentState === 'processing' || currentState === 'testing') {
-    const oldVersion = task.version;
-    if (!task.versions) task.versions = {};
-    if (!task.versions[`v${oldVersion}`]) {
-      task.versions[`v${oldVersion}`] = {
-        updatedAt: task.updatedAt,
-        description: task.description,
-        implementationNotes: task.implementationNotes,
-        testFlows: task.testFlows ? task.testFlows.map(f => ({ ...f })) : undefined,
-        bounceCount: task.bounceCount,
-      };
-    }
+  const oldVersion = task.version;
+  if (!task.versions) task.versions = {};
+  if (!task.versions[`v${oldVersion}`]) {
+    task.versions[`v${oldVersion}`] = {
+      updatedAt: task.updatedAt,
+      description: task.description,
+      implementationNotes: task.implementationNotes,
+      testFlows: task.testFlows ? task.testFlows.map(f => ({ ...f })) : undefined,
+      bounceCount: task.bounceCount,
+      changeDescription: updates.changeDescription,
+    };
   }
 
   if (hasDescription) task.description = updates.description!;
@@ -113,6 +113,7 @@ export function editTask(
     taskState: currentState!,
     action: 'edit',
     description: `User edited task '${taskId}' to v${task.version}`,
+    summary: updates.changeDescription || undefined,
     result: 'success',
     duration: 0,
     error: null,
@@ -125,6 +126,24 @@ export function editTask(
     } else {
       console.log(`Task '${taskId}' updated to v${task.version} and moved to pending.`);
     }
+    // Log the transition
+    appendRunLog(taskDir, {
+      timestamp: new Date().toISOString(),
+      agentType: 'user',
+      sessionId: 'cli',
+      agentName: null,
+      taskId,
+      taskVersion: task.version,
+      taskState: currentState,
+      fromState: currentState,
+      toState: 'pending',
+      action: 'edit-move',
+      description: `Task '${taskId}' moved ${currentState}→pending after edit`,
+      result: 'success',
+      duration: 0,
+      error: null,
+      details: null,
+    });
   } else {
     console.log(`Task '${taskId}' updated to v${task.version}.`);
   }
