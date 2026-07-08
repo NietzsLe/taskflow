@@ -188,12 +188,15 @@ Each row shows: ID, name, version, and `passRatio` (when the task is in `testing
 
 ### 2.2 `add <name>` — Create a new task
 
+> **CRITICAL — Do not auto-move to pending:** The task is created in `defined/` and stays there until the user **explicitly** says "move to pending", "ready for executor", or equivalent. Never move a task to `pending` on the agent's own initiative — the executor loop may pick it up before the user finishes defining the description, implementation notes, and test flows.
+
 1. (Recommended) Brainstorm with the user to clarify the intended `description`, `implementationNotes`, and `testFlows`.
-2. Create the YAML file in `.tasks/defined/` named `YYYY-MM-DD_<slug>_<seq>.yaml`.
+2. Create the YAML file in `.tasks/defined/` named `YYYY-MM-DD_<slug>_<seq>.yaml` via `npx taskflow add <name>`.
 3. The task is created in `defined` state with `version: 1` and an **empty `description`** — it is NOT available for executor pickup and has no details yet.
 4. Follow up with `edit <id> -d "..." -i "..." -t '[...]'` to fill in the description / implementation notes / test flows.
-5. Then `move <id> pending` to make it available for executor pickup.
-6. A run-log entry with action `add` is written.
+5. **STOP. Tell the user:** "Task `<id>` is defined in `defined/` and not yet available for the executor. When you're happy with the definition, say 'move <id> to pending' (or 'ready for executor') and I'll make it available."
+6. Only when the user explicitly confirms → run `npx taskflow move <id> pending` to make it available for executor pickup.
+7. A run-log entry with action `add` is written at creation, and action `move` is written when the task moves to pending.
 
 ### 2.3 `edit <id>` — Edit a task
 
@@ -399,6 +402,7 @@ If the user asks to add a new notification channel:
 
 | Rule | Description |
 |------|-------------|
+| **Never auto-move to pending** | Tasks stay in `defined/` until the user explicitly says "move to pending" / "ready for executor". The agent must never move a task to `pending` on its own — the executor loop may pick it up before the user finishes defining it. |
 | **Only edit defined/pending in place** | Tasks in processing/testing must go through the versioning flow (snapshot + move to pending). |
 | **Versioning is mandatory for active tasks** | When editing a processing/testing task, the old version is snapshotted. |
 | **Reset testResults on version change** | A version bump always resets `testResults` (and clears `bugs`/`blockedReason`). |

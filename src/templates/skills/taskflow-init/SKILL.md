@@ -236,7 +236,11 @@ npx taskflow list
 ### Step 5: Guide the user
 
 1. **Create a task**: `npx taskflow add "Task name"` or use the `taskflow-user` skill
-2. **Run executor**: Use the `taskflow-executor` skill
+   - The task starts in `defined/` — NOT available for executor pickup yet.
+   - Use `npx taskflow edit <id> -d "..." -i "..." -t '[...]'` to fill in the details.
+   - **Only when the user is satisfied with the definition**: `npx taskflow move <id> pending` to make it available for the executor.
+   - The agent must **never** auto-move a task to `pending` — always wait for the user to explicitly confirm.
+2. **Run executor**: Use the `taskflow-executor` skill (only picks up from `pending/`)
 3. **Run tester**: Use the `taskflow-tester` skill
 4. **Approve a task**: `npx taskflow approve <id>` or use the `taskflow-user` skill
 5. **Cleanup locks**: Use the `taskflow-lock-releaser` skill or `npx taskflow unlock --all`
