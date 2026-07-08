@@ -215,9 +215,14 @@ export function formatReport(diff: NotifierDiff, snapshot: NotifierSnapshot, con
   }
 
   if (issueLines.length > 0) {
-    lines.push(`**Issues:**`);
-    lines.push(...issueLines);
-    lines.push('');
+    if (config.notification.detailedOnIssues) {
+      lines.push(`**Issues:**`);
+      lines.push(...issueLines);
+      lines.push('');
+    } else {
+      lines.push(`**Issues:** ${diff.newlyBlocked.length} blocked, ${diff.bounceThresholdHit.length} bounce thresholds, ${diff.staleLocks.length} stale locks`);
+      lines.push('');
+    }
   }
 
   const stateCounts: Record<string, number> = {};
