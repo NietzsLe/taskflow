@@ -494,7 +494,7 @@ export function loadConfig(taskDir: string): TaskFlowConfig {
  * G1: allows secrets (SMTP passwords, webhook URLs) to be referenced without hardcoding.
  */
 function resolveEnvVars(text: string): string {
-  return text.replace(/\$\{([A-Z_][A-Z0-9_]*)(?::([^}]*))?\}/g, (match, varName, defaultVal) => {
+  return text.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::([^}]*))?\}/g, (match, varName, defaultVal) => {
     const envVal = process.env[varName];
     if (envVal !== undefined) return envVal;
     if (defaultVal !== undefined) return defaultVal;

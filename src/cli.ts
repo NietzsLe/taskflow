@@ -1087,17 +1087,28 @@ program
       }
 
       // Send through all enabled channels
+      const sentChannels: string[] = [];
       for (const channel of config.notification.channels) {
         if (!channel.enabled) continue;
+        const channelName = channel.name || channel.type;
         if (channel.type === 'console') {
           console.log(report);
+          sentChannels.push(channelName);
         } else if (channel.type === 'file' && channel.path) {
-          fs.appendFileSync(path.join(taskDir, channel.path), `\n## ${new Date().toISOString()}\n${report}\n`, 'utf-8');
+          try {
+            fs.appendFileSync(path.join(taskDir, channel.path), `\n## ${new Date().toISOString()}\n${report}\n`, 'utf-8');
+            sentChannels.push(channelName);
+          } catch (err: any) {
+            console.error(`Failed to send to channel '${channelName}': ${err.message}`);
+          }
         }
+        // webhook, email, custom channels are handled by the notifier agent skill
+        // (the agent reads the `guide` field and follows instructions)
       }
 
       // Log
-      appendNotifierLog(taskDir, `- First run: ${Object.keys(currentSnapshot.tasks).length} tasks found\n- Sent initial report through console, file`);
+      const sentStr = sentChannels.length > 0 ? sentChannels.join(', ') : '(none)';
+      appendNotifierLog(taskDir, `- First run: ${Object.keys(currentSnapshot.tasks).length} tasks found\n- Sent initial report through: ${sentStr}`);
       appendRunLog(taskDir, {
         timestamp: new Date().toISOString(),
         agentType: 'notifier',
@@ -1143,12 +1154,20 @@ program
     }
 
     // Send through all enabled channels
+    const sentChannels: string[] = [];
     for (const channel of config.notification.channels) {
       if (!channel.enabled) continue;
+      const channelName = channel.name || channel.type;
       if (channel.type === 'console') {
         console.log(report);
+        sentChannels.push(channelName);
       } else if (channel.type === 'file' && channel.path) {
-        fs.appendFileSync(path.join(taskDir, channel.path), `\n## ${new Date().toISOString()}\n${report}\n`, 'utf-8');
+        try {
+          fs.appendFileSync(path.join(taskDir, channel.path), `\n## ${new Date().toISOString()}\n${report}\n`, 'utf-8');
+          sentChannels.push(channelName);
+        } catch (err: any) {
+          console.error(`Failed to send to channel '${channelName}': ${err.message}`);
+        }
       }
     }
 
@@ -1156,7 +1175,8 @@ program
     const changeCount = diff.transitions.length + diff.newTasks.length + diff.removedTasks.length +
       diff.newlyBlocked.length + diff.bounceThresholdHit.length + diff.staleLocks.length +
       diff.versionBumps.length + diff.resolvedBlocks.length;
-    appendNotifierLog(taskDir, `- Checked tasks: ${Object.keys(currentSnapshot.tasks).length}\n- Changes detected: ${changeCount}\n- Transitions: ${diff.transitions.length}, New: ${diff.newTasks.length}, Blocked: ${diff.newlyBlocked.length}, Bounces: ${diff.bounceThresholdHit.length}, Stale locks: ${diff.staleLocks.length}, Version bumps: ${diff.versionBumps.length}, Resolved: ${diff.resolvedBlocks.length}`);
+    const sentStr = sentChannels.length > 0 ? sentChannels.join(', ') : '(none)';
+    appendNotifierLog(taskDir, `- Checked tasks: ${Object.keys(currentSnapshot.tasks).length}\n- Changes detected: ${changeCount}\n- Sent through: ${sentStr}\n- Transitions: ${diff.transitions.length}, New: ${diff.newTasks.length}, Blocked: ${diff.newlyBlocked.length}, Bounces: ${diff.bounceThresholdHit.length}, Stale locks: ${diff.staleLocks.length}, Version bumps: ${diff.versionBumps.length}, Resolved: ${diff.resolvedBlocks.length}`);
     appendRunLog(taskDir, {
       timestamp: new Date().toISOString(),
       agentType: 'notifier',
