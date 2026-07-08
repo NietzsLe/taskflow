@@ -415,7 +415,7 @@ browserMCP:
 infrastructure:
   environments:
     dev:
-      services:
+      components:
         - name: "core-api"
           type: "process"
           check:

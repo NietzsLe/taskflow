@@ -152,7 +152,7 @@ export interface ComponentRelationship {
 
 export interface EnvironmentConfig {
   description: string;
-  setupGuide: string;
+  setupGuide?: string;
   components: ServiceConfig[];
   componentRelationships?: ComponentRelationship[];
 }
@@ -189,6 +189,7 @@ export interface SeedEntry {
     method: 'api' | 'command';
     url?: string;
     expectedStatus?: number;
+    command?: string;
   };
   setup: {
     auto: boolean;

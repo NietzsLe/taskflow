@@ -874,10 +874,11 @@ program
 
 program
   .command('check-infra [env]')
-  .description('Check infrastructure services for an environment (H4)')
-  .action(async (env?: string) => {
+  .description('Check infrastructure components for an environment')
+  .option('--seed', 'Check only seed entries (skip components)')
+  .action(async (env?: string, options?: { seed?: boolean }) => {
     const taskDir = path.join(process.cwd(), '.tasks');
-    await checkInfrastructure(taskDir, env);
+    await checkInfrastructure(taskDir, env, options?.seed);
   });
 
 program

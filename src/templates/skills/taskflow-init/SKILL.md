@@ -16,7 +16,7 @@ Install TaskFlow into a project: check prerequisites, run init, configure, verif
 ## 2. Inputs
 
 - Target project (current directory)
-- User may provide configuration info (environment, services, browser MCP tools)
+- User may provide configuration info (environment, infrastructure components, browser MCP tools)
 
 ## 3. Detailed Procedure
 

@@ -48,13 +48,17 @@ function checkCommand(cmd: string, timeoutMs = 10000): boolean {
 
 function topologicalSort(names: string[], dependsOn: Record<string, string[]>): string[] {
   const visited = new Set<string>();
+  const visiting = new Set<string>();
   const result: string[] = [];
   function visit(name: string) {
     if (visited.has(name)) return;
-    visited.add(name);
+    if (visiting.has(name)) throw new Error(`Circular dependency detected involving '${name}'`);
+    visiting.add(name);
     for (const dep of dependsOn[name] || []) {
       visit(dep);
     }
+    visiting.delete(name);
+    visited.add(name);
     result.push(name);
   }
   for (const name of names) {
@@ -118,6 +122,7 @@ export async function checkInfrastructure(taskDir: string, envName?: string, che
             const r = results.find(rr => rr.name === d);
             return r && (r.status === 'fail' || r.status === 'dep-down');
           }).join(', ')})`,
+          interactionGuide: svc.interactionGuide,
         });
         if (svc.required) allRequiredOk = false;
         continue;
@@ -144,8 +149,8 @@ export async function checkInfrastructure(taskDir: string, envName?: string, che
         message = `error: ${err.message}`;
       }
 
-      // Auto-setup if auto=true and check failed
-      if (!ok && svc.setup.auto && svc.setup.command) {
+      // Auto-setup if auto=true and check failed (skip for remote components)
+      if (!ok && svc.setup.auto && svc.setup.command && svc.type !== 'remote') {
         try {
           execSync(svc.setup.command, { timeout: (svc.setup.timeoutSeconds || 30) * 1000, stdio: 'pipe' });
           // Re-check after setup
@@ -205,7 +210,7 @@ export async function checkInfrastructure(taskDir: string, envName?: string, che
           ok = await checkHttp(seed.check.url || '', seed.check.expectedStatus || 200, 5000);
           message = `API ${seed.check.url} → ${seed.check.expectedStatus || 200}`;
         } else if (seed.check.method === 'command') {
-          ok = checkCommand(seed.setup.command || '', (seed.setup.timeoutSeconds || 30) * 1000);
+          ok = checkCommand(seed.check.command || seed.setup.command || '', (seed.setup.timeoutSeconds || 30) * 1000);
           message = `command: ${seed.setup.command?.slice(0, 60)}`;
         }
       } catch (err: any) {

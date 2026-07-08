@@ -232,7 +232,7 @@ Read `.tasks/config.yaml` to get:
 - `test.skipPassedFlows` — skip already-passed flows (default true)
 - `test.infraLockRequired` — whether infra lock is required (default true)
 - `browserMCP` — list of browser tools
-- `infrastructure` — list of services and seed data
+- `infrastructure` — repositories, components, componentRelationships, and seed data
 
 ### Step 1.5: Read custom instructions
 
@@ -344,9 +344,9 @@ npx taskflow check-infra <env>
 
 This now checks in **dependency order** (components with `dependsOn` are checked after their dependencies). If a dependency is down, dependent components are reported as "skipped (dependency down)" instead of "fail".
 
-If all required services are healthy → **skip setup, proceed to test flows directly** (saves time).
+If all required components are healthy → **skip setup, proceed to test flows directly** (saves time).
 
-If some services are not available → set them up:
+If some components are not available → set them up:
 
 Read the flow's `environment` (natural language text). Cross-reference with `config.infrastructure.environments`:
 
@@ -365,7 +365,7 @@ Read the flow's `environment` (natural language text). Cross-reference with `con
    - If seed missing and `seed.setup.auto == true` → auto-runs seed command
    - If seed missing and `seed.setup.auto == false` → guide user
 5. **If a `required: true` component cannot start** → write `blockedReason`, release locks, notify user
-6. **Re-run `npx taskflow check-infra <env>`** to confirm all services are healthy before proceeding.
+6. **Re-run `npx taskflow check-infra <env>`** to confirm all components are healthy before proceeding.
 
 > The tester has full authority to set up the infrastructure (docker compose up, npm run dev, seed data, etc.). Read `config.infrastructure.environments.<env>.components[].setup` and `components[].interactionGuide` for the exact commands and troubleshooting.
 
