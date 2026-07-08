@@ -594,12 +594,13 @@ program
 
 program
   .command('edit <id>')
-  .description('Edit a task (creates new version if in processing/testing)')
+  .description('Edit a task (always creates new version snapshot)')
   .option('-d, --description <text>', 'New description')
   .option('-i, --implementation-notes <text>', 'New implementation notes')
   .option('-t, --test-flows <json>', 'New test flows (JSON array)')
+  .option('-c, --change-description <text>', 'Reason for this edit (stored in version snapshot)')
   .option('--force', 'Override lock check (use with caution)')
-  .action((id: string, options: { description?: string; implementationNotes?: string; testFlows?: string; force?: boolean }) => {
+  .action((id: string, options: { description?: string; implementationNotes?: string; testFlows?: string; changeDescription?: string; force?: boolean }) => {
     const taskDir = path.join(process.cwd(), '.tasks');
     let testFlows: { name: string; environment?: string; steps: string }[] | undefined;
     if (options.testFlows) {
@@ -615,6 +616,7 @@ program
         description: options.description,
         implementationNotes: options.implementationNotes,
         testFlows,
+        changeDescription: options.changeDescription,
       }, { force: options.force });
     } catch (err) {
       if (err instanceof TaskLockedError) {
