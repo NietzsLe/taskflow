@@ -1,6 +1,6 @@
 ---
 name: taskflow-notifier
-description: Check blocked tasks, send notifications through configured channels. For notifier agents.
+description: Monitor all tasks via snapshot diff, detect state changes, and notify through configured channels. For notifier agents.
 ---
 
 # taskflow-notifier
