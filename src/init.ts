@@ -39,6 +39,11 @@ export function initTaskDir(targetDir: string, options?: { force?: boolean }): v
     fs.writeFileSync(releaserLogPath, '# Lock-releaser Log\n', 'utf-8');
   }
 
+  const notifierLogPath = path.join(taskDir, 'runs', 'notifier-log.md');
+  if (!fs.existsSync(notifierLogPath)) {
+    fs.writeFileSync(notifierLogPath, '# Notifier Log\n', 'utf-8');
+  }
+
   console.log('Created:');
   console.log('  .tasks/defined/');
   console.log('  .tasks/pending/');
@@ -53,11 +58,12 @@ export function initTaskDir(targetDir: string, options?: { force?: boolean }): v
   console.log('  .tasks/config.yaml');
   console.log('  .tasks/.gitignore');
   console.log('  .tasks/runs/releaser-log.md');
+  console.log('  .tasks/runs/notifier-log.md');
   console.log('');
   console.log('Next: edit .tasks/config.yaml to configure heartbeat, infrastructure, browserMCP');
 }
 
-export function installSkills(targetDir: string): void {
+export function installSkills(targetDir: string, options?: { updateSkills?: boolean }): void {
   const skillsDest = path.join(targetDir, '.agents', 'skills');
   const skillNames = [
     'taskflow-executor',
@@ -80,7 +86,7 @@ export function installSkills(targetDir: string): void {
     }
     const srcFile = path.join(srcDir, 'SKILL.md');
     const destFile = path.join(destDir, 'SKILL.md');
-    if (fs.existsSync(srcFile) && !fs.existsSync(destFile)) {
+    if (fs.existsSync(srcFile) && (!fs.existsSync(destFile) || options?.updateSkills)) {
       fs.copyFileSync(srcFile, destFile);
     }
   }

@@ -30,6 +30,8 @@ import { cleanupWorktrees } from './commands/cleanup-worktrees';
 import { recoverStuckTasks } from './commands/recover';
 import { updateTaskStatus } from './commands/status-update';
 import { testFail, resetBounceCount } from './commands/test-fail';
+import { buildSnapshot, readSnapshot, writeSnapshot, computeDiff, formatReport, getNotifierStatePath } from './core/notifier';
+import { appendNotifierLog } from './core/runlog';
 
 const program = new Command();
 
@@ -87,11 +89,12 @@ program
   .description('Scaffold .tasks/ directory and install skills')
   .option('--no-skills', 'Skip installing agent skills')
   .option('--force', 'Backup existing .tasks/ and re-init from scratch')
+  .option('--update-skills', 'Overwrite existing skill files with latest templates')
   .action((options) => {
     const targetDir = process.cwd();
     initTaskDir(targetDir, { force: options.force });
     if (options.skills !== false) {
-      installSkills(targetDir);
+      installSkills(targetDir, { updateSkills: options.updateSkills });
     }
   });
 
@@ -1030,6 +1033,148 @@ program
         }
       } catch {}
     }
+  });
+
+program
+  .command('notify')
+  .description('Run one notifier check cycle — detect task state changes and notify through enabled channels')
+  .option('--dry-run', 'Show report without sending to channels')
+  .option('--reset', 'Clear snapshot (next run reports all as new)')
+  .action((options: { dryRun?: boolean; reset?: boolean }) => {
+    const taskDir = path.join(process.cwd(), '.tasks');
+    const config = loadConfig(taskDir);
+
+    if (!config.notification.enabled) {
+      console.log('Notifications are disabled in config.');
+      return;
+    }
+
+    if (options.reset) {
+      const statePath = getNotifierStatePath(taskDir);
+      if (fs.existsSync(statePath)) {
+        fs.unlinkSync(statePath);
+        console.log('Notifier snapshot cleared. Next run will report all tasks as new.');
+      } else {
+        console.log('No snapshot to clear.');
+      }
+      return;
+    }
+
+    // Build current snapshot
+    const currentSnapshot = buildSnapshot(taskDir, config);
+
+    // Read previous snapshot
+    const prevSnapshot = readSnapshot(taskDir);
+
+    if (!prevSnapshot) {
+      // First run — report all tasks as new
+      const report = formatReport({
+        transitions: [],
+        newTasks: Object.values(currentSnapshot.tasks).map(t => ({
+          taskId: t.id, name: t.name, state: t.state,
+        })),
+        removedTasks: [],
+        newlyBlocked: [],
+        bounceThresholdHit: [],
+        staleLocks: [],
+        versionBumps: [],
+        resolvedBlocks: [],
+      }, currentSnapshot, config);
+
+      if (options.dryRun) {
+        console.log(report);
+        return;
+      }
+
+      // Send through all enabled channels
+      for (const channel of config.notification.channels) {
+        if (!channel.enabled) continue;
+        if (channel.type === 'console') {
+          console.log(report);
+        } else if (channel.type === 'file' && channel.path) {
+          fs.appendFileSync(path.join(taskDir, channel.path), `\n## ${new Date().toISOString()}\n${report}\n`, 'utf-8');
+        }
+      }
+
+      // Log
+      appendNotifierLog(taskDir, `- First run: ${Object.keys(currentSnapshot.tasks).length} tasks found\n- Sent initial report through console, file`);
+      appendRunLog(taskDir, {
+        timestamp: new Date().toISOString(),
+        agentType: 'notifier',
+        sessionId: 'cli',
+        agentName: null,
+        taskId: '(all)',
+        taskVersion: 0,
+        taskState: '(all)',
+        action: 'notify-cycle',
+        description: `First notifier run: ${Object.keys(currentSnapshot.tasks).length} tasks found, initial report sent`,
+        result: 'success',
+        duration: 0,
+        error: null,
+        details: null,
+      });
+
+      writeSnapshot(taskDir, currentSnapshot);
+      console.log('Notifier snapshot saved. Next run will detect changes.');
+      return;
+    }
+
+    // Compute diff
+    const diff = computeDiff(prevSnapshot, currentSnapshot, config);
+
+    // Check if anything changed
+    const hasChanges = diff.transitions.length > 0 || diff.newTasks.length > 0 ||
+      diff.removedTasks.length > 0 || diff.newlyBlocked.length > 0 ||
+      diff.bounceThresholdHit.length > 0 || diff.staleLocks.length > 0 ||
+      diff.versionBumps.length > 0 || diff.resolvedBlocks.length > 0;
+
+    if (!hasChanges && !config.notification.reportOnNoChange) {
+      // Nothing changed — just update snapshot
+      writeSnapshot(taskDir, currentSnapshot);
+      return;
+    }
+
+    // Format report
+    const report = formatReport(diff, currentSnapshot, config);
+
+    if (options.dryRun) {
+      console.log(report);
+      return;
+    }
+
+    // Send through all enabled channels
+    for (const channel of config.notification.channels) {
+      if (!channel.enabled) continue;
+      if (channel.type === 'console') {
+        console.log(report);
+      } else if (channel.type === 'file' && channel.path) {
+        fs.appendFileSync(path.join(taskDir, channel.path), `\n## ${new Date().toISOString()}\n${report}\n`, 'utf-8');
+      }
+    }
+
+    // Log
+    const changeCount = diff.transitions.length + diff.newTasks.length + diff.removedTasks.length +
+      diff.newlyBlocked.length + diff.bounceThresholdHit.length + diff.staleLocks.length +
+      diff.versionBumps.length + diff.resolvedBlocks.length;
+    appendNotifierLog(taskDir, `- Checked tasks: ${Object.keys(currentSnapshot.tasks).length}\n- Changes detected: ${changeCount}\n- Transitions: ${diff.transitions.length}, New: ${diff.newTasks.length}, Blocked: ${diff.newlyBlocked.length}, Bounces: ${diff.bounceThresholdHit.length}, Stale locks: ${diff.staleLocks.length}, Version bumps: ${diff.versionBumps.length}, Resolved: ${diff.resolvedBlocks.length}`);
+    appendRunLog(taskDir, {
+      timestamp: new Date().toISOString(),
+      agentType: 'notifier',
+      sessionId: 'cli',
+      agentName: null,
+      taskId: '(all)',
+      taskVersion: 0,
+      taskState: '(all)',
+      action: 'notify-cycle',
+      description: `Notifier cycle: ${changeCount} changes detected`,
+      summary: `${diff.transitions.length} transitions, ${diff.newTasks.length} new, ${diff.newlyBlocked.length} blocked, ${diff.bounceThresholdHit.length} bounces, ${diff.staleLocks.length} stale locks, ${diff.versionBumps.length} version bumps, ${diff.resolvedBlocks.length} resolved`,
+      result: 'success',
+      duration: 0,
+      error: null,
+      details: null,
+    });
+
+    writeSnapshot(taskDir, currentSnapshot);
   });
 
 try {
