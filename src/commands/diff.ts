@@ -80,8 +80,18 @@ export function diffTask(taskDir: string, taskId: string, v1?: string, v2?: stri
     console.log('');
   }
 
+  // Compare changeDescription
+  const cdL = (left.snap as any).changeDescription;
+  const cdR = (right.snap as any).changeDescription;
+  if (cdL !== cdR) {
+    console.log('--- changeDescription ---');
+    if (cdL) console.log(`< ${cdL}`);
+    if (cdR) console.log(`> ${cdR}`);
+    console.log('');
+  }
+
   // If nothing changed
-  if (descL === descR && inL === inR && JSON.stringify(tfL) === JSON.stringify(tfR)) {
+  if (descL === descR && inL === inR && JSON.stringify(tfL) === JSON.stringify(tfR) && cdL === cdR) {
     console.log('(no differences)');
   }
 }
