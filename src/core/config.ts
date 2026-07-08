@@ -163,7 +163,7 @@ export interface ServiceConfig {
   description: string;
   type: 'docker' | 'process' | 'remote';
   check: {
-    method: 'port' | 'http' | 'command';
+    method: 'port' | 'tcp' | 'http' | 'command';
     port?: number;
     host?: string;
     url?: string;

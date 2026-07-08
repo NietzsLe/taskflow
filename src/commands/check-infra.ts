@@ -128,7 +128,7 @@ export async function checkInfrastructure(taskDir: string, envName?: string, che
       let message = '';
 
       try {
-        if (check.method === 'port') {
+        if (check.method === 'port' || check.method === 'tcp') {
           ok = await checkPort(check.host || 'localhost', check.port || 80, check.timeoutSeconds ? check.timeoutSeconds * 1000 : 3000);
           message = `port ${check.port} on ${check.host || 'localhost'}`;
         } else if (check.method === 'http') {
@@ -149,7 +149,7 @@ export async function checkInfrastructure(taskDir: string, envName?: string, che
         try {
           execSync(svc.setup.command, { timeout: (svc.setup.timeoutSeconds || 30) * 1000, stdio: 'pipe' });
           // Re-check after setup
-          if (check.method === 'port') {
+          if (check.method === 'port' || check.method === 'tcp') {
             ok = await checkPort(check.host || 'localhost', check.port || 80, 5000);
           } else if (check.method === 'http') {
             ok = await checkHttp(check.url || '', check.expectedStatus || 200, 5000);
