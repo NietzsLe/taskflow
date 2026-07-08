@@ -96,7 +96,8 @@ Write to `.tasks/runs/notifier-log.md`. You can use the `appendNotifierLog` help
 ```markdown
 ## <timestamp>
 - Checked blocked tasks: <count> found
-- Sent notifications through: <list of channels>
+- Sent notifications through: <list of channels as [type]/name or [type] if name absent>
+- Failed channels: <list of channels that failed to send, or "none">
 - Tasks: <list of task IDs>
 ```
 
