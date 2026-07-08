@@ -1,10 +1,61 @@
 # TaskFlow
 
-**Automation task management framework** with mutex locks, versioning, test flows, and agent skills.
+**Foundation layer for loop engineering** — reliable state machine, coordination protocol, and run-log substrate that multi-agent loops run on top of.
 
-TaskFlow is a standalone CLI tool that manages the lifecycle of automation tasks across multiple AI agent sessions. It provides a file-based coordination layer so that executor agents, tester agents, and cleanup agents can work concurrently without conflicts.
+```
+npx taskflow init        # Scaffold loop state directory
+npx taskflow add "..."   # Define a loop task
+npx taskflow list        # Inspect loop state
+```
 
-> **Key philosophy:** Agents read natural language descriptions and act on them — no scripts to run, no DSL to learn. The framework orchestrates; the agent decides how.
+TaskFlow is not a prompting tool. It is the **control plane** for loop engineering: a file-based coordination layer that gives multi-agent loops a durable state machine, mutex-based safety, versioned task definitions, and an append-only run log. Design the loop on top; TaskFlow handles the orchestration.
+
+> **Philosophy:** Don't prompt agents manually. Design the loop. Let TaskFlow handle state, locking, and history.
+
+---
+
+## Loop Engineering — Concepts & Mapping
+
+Loop engineering replaces manual prompting with a **control system** that orchestrates agents over time. The five building blocks (+ memory) defined by the loop engineering community map directly to TaskFlow primitives:
+
+| Loop Primitive | TaskFlow Primitive | What It Provides |
+|---|---|---|
+| **State / Memory** | `.tasks/` state directories + run logs | Durable spine outside any conversation — 7-state machine, append-only session/task logs |
+| **Scheduling / Automation** | `pending/` → agent pickup cycle | Agents discover work via file system; cron/systemd can trigger `taskflow list pending` |
+| **Sub-agents** | Agent skills (executor, tester, user) | Pre-defined roles with strict state transition boundaries; custom skills via config |
+| **Worktrees** | `taskflow worktree` commands (opt-in git flow) | Isolated execution per task — create, commit, merge, revert, cleanup |
+| **Safety / Locking** | Mutex locks + heartbeat protocol | `O_CREAT \| O_EXCL` atomic acquire, stale detection, lock-releaser cleanup |
+| **Human Gate** | `blocked/` state + `pendingQuestions` | Agent collects all questions → blocks once → user resolves → loop continues |
+| **Run Log / Audit** | `.tasks/runs/` (sessions + tasks) | Append-only markdown, trimming, filtering by agent/task/result |
+
+### How a Loop Runs on TaskFlow
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Loop Controller (cron, systemd, /loop, CI/CD)              │
+│  "Every N minutes, check pending/ and dispatch an agent"    │
+└──────────┬──────────────────────────────────────────────────┘
+           │ triggers
+           ▼
+┌─────────────────────┐     ┌──────────────────────────────┐
+│  Agent picks task   │────►│  Acquires lock, heartbeats   │
+│  from pending/      │     │  implements, moves to testing │
+└─────────────────────┘     └──────────┬───────────────────┘
+                                       │
+                          ┌────────────▼────────────┐
+                          │  Tester runs flows      │
+                          │  pass → review/         │
+                          │  fail → processing/     │
+                          │  question → blocked/    │
+                          └────────────┬────────────┘
+                                       │
+                          ┌────────────▼────────────┐
+                          │  Human reviews → done/  │
+                          │  or rejects → pending/  │
+                          └─────────────────────────┘
+```
+
+Every transition is logged, every lock is heartbeated, every version is tracked. The loop controller only needs to check `pending/` and dispatch agents — TaskFlow handles the rest.
 
 ---
 
@@ -65,16 +116,18 @@ Example: `2026-07-07_login-flow_001.yaml`
 
 ## State Machine
 
+The 7-state machine is the core of TaskFlow's loop substrate. Every state transition is validated, logged, and (when active) lock-protected.
+
 ```
 defined ──(user move)──► pending ──(executor)──► processing ──(executor done)──► testing
                               │                       │ │                         │
-                              │                  (block) │ (block)            (all pass?)
-                              │                       ▼ │   ▼                       │
-                              │                   blocked   blocked             ┌────┴────┐
-                              │                       │       │                 ▼         ▼
-                              │              (resolve)│  (resolve)            review    processing
-                              │                       ▼       ▼                 │    (with bugs)
-                              │                 processing  testing              │
+                         (block) │ (block)            (all pass?)
+                              ▼                       ▼   ▼                       │
+                          blocked                   blocked                  ┌────┴────┐
+                              │                       │                      ▼         ▼
+                     (resolve)│                (resolve)│                 review    processing
+                              ▼                       ▼                      │    (with bugs)
+                        processing                 testing                    │
                               └──────────(user reject)─────────────────────►─── done
 ```
 
@@ -102,7 +155,7 @@ defined ──(user move)──► pending ──(executor)──► processing 
 
 ## Lock Mechanism
 
-TaskFlow uses **file-based mutex locks** (no Redis, no database).
+TaskFlow uses **file-based mutex locks** (no Redis, no database) — a lightweight safety layer for loop engineering.
 
 - **Task lock** (`.tasks/locks/task-<id>.lock`): Prevents two sessions from working on the same task
 - **Infra lock** (`.tasks/locks/infra.lock`): Ensures only one tester runs against the dev infrastructure at a time
@@ -198,7 +251,7 @@ versions:
 
 ## Agent Skills
 
-TaskFlow installs 6 skills into `.agents/skills/` during `init`.
+TaskFlow installs 6 skills into `.agents/skills/` during `init`. These are the **sub-agent definitions** for loop engineering — each skill defines a role with strict state boundaries.
 
 | Skill | Location | Purpose |
 |-------|----------|---------|
@@ -302,14 +355,14 @@ Custom instructions/skills/tools do **not** conflict with the framework. The fra
 | `npx taskflow reject <id> [-r,--reason <text>]` | Move task from `review/` back to `pending/`; optionally write `blockedReason` |
 | `npx taskflow unlock [id]` | Force release a lock (without args: infra lock) |
 | `npx taskflow unlock --all` | Release all locks |
-| `npx taskflow lock <id> [--infra] [--agent executor|tester]` | Acquire a task or infra lock (for agent use) |
+| `npx taskflow lock <id> [--infra] [--agent executor\|tester]` | Acquire a task or infra lock (for agent use) |
 | `npx taskflow heartbeat <id> [--infra]` | Update heartbeat on a lock (for agent use) |
 | `npx taskflow answer <id> <questionId> <text>` | Answer a pending question on a blocked task |
 | `npx taskflow delete <id>` | Archive a task (move to `.tasks/archive/` with a deletion note) |
 | `npx taskflow doctor` | Run health checks on `.tasks/`, config, locks, and skills |
-| `npx taskflow config [list|get|set]` | View/set config values (e.g. `config get heartbeat.staleThresholdSeconds`) |
-| `npx taskflow skills [list|verify]` | List or verify installed agent skills |
-| `npx taskflow export <id> [-f json|yaml]` | Export a task to stdout |
+| `npx taskflow config [list\|get\|set]` | View/set config values (e.g. `config get heartbeat.staleThresholdSeconds`) |
+| `npx taskflow skills [list\|verify]` | List or verify installed agent skills |
+| `npx taskflow export <id> [-f json\|yaml]` | Export a task to stdout |
 | `npx taskflow import <file>` | Import a task from a JSON or YAML file into `defined/` |
 | `npx taskflow clean [--before <date>] [--dry-run]` | Archive done tasks (move to `.tasks/archive/`) |
 | `npx taskflow check-infra [env]` | Check infrastructure services for an environment |
