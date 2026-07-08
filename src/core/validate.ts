@@ -114,6 +114,9 @@ function asVersionSnapshot(v: unknown, field: string, key: string): VersionSnaps
   if (v.bounceCount !== undefined) {
     snap.bounceCount = asOptionalNumber(v.bounceCount, `${field}.${key}.bounceCount`);
   }
+  if (v.changeDescription !== undefined) {
+    snap.changeDescription = asOptionalString(v.changeDescription, `${field}.${key}.changeDescription`);
+  }
   return snap;
 }
 
