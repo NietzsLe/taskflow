@@ -62,6 +62,7 @@ export interface VersionSnapshot {
   implementationNotes?: string;
   testFlows?: TestFlow[];
   bounceCount?: number;
+  changeDescription?: string;
 }
 
 export interface Bug {
@@ -87,6 +88,8 @@ export interface RunLogEntry {
   taskId: string;
   taskVersion: number;
   taskState: string;
+  fromState?: string;
+  toState?: string;
   action: string;
   description: string;
   summary?: string;
@@ -102,3 +105,33 @@ export const VALID_STATES: TaskState[] = ['defined', 'pending', 'processing', 't
 
 export const VALID_AGENTS = ['executor', 'tester', 'user', 'lock-releaser', 'notifier'] as const;
 export type AgentType = typeof VALID_AGENTS[number];
+
+export interface TaskSnapshotEntry {
+  id: string;
+  name: string;
+  state: TaskState;
+  version: number;
+  bounceCount: number;
+  attemptCount: number;
+  blockedReason?: string;
+  pendingQuestionCount: number;
+  lockedBy?: string;
+  lockStale: boolean;
+  updatedAt: string;
+}
+
+export interface NotifierSnapshot {
+  takenAt: string;
+  tasks: Record<string, TaskSnapshotEntry>;
+}
+
+export interface NotifierDiff {
+  transitions: { taskId: string; name: string; from: TaskState; to: TaskState }[];
+  newTasks: { taskId: string; name: string; state: TaskState }[];
+  removedTasks: { taskId: string; lastState: TaskState }[];
+  newlyBlocked: { taskId: string; name: string; questions: PendingQuestion[]; previousState: TaskState; blockedReason?: string }[];
+  bounceThresholdHit: { taskId: string; name: string; bounceCount: number; maxBounces: number }[];
+  staleLocks: { taskId: string; sessionId: string; elapsedSeconds: number }[];
+  versionBumps: { taskId: string; name: string; from: number; to: number }[];
+  resolvedBlocks: { taskId: string; toState: TaskState }[];
+}
