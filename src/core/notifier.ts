@@ -1,13 +1,16 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { parse as parseYaml } from 'yaml';
-import { TaskYaml, TaskState, TaskSnapshotEntry, NotifierSnapshot, NotifierDiff } from './types';
+import { TaskYaml, TaskState, TaskSnapshotEntry, NotifierSnapshot, NotifierDiff, PendingQuestion } from './types';
 import { getTaskFilePath, listTasks } from './state';
 import { TaskFlowConfig } from './config';
 import { readLock, getTaskLockPath, isLockStale } from './lock';
 import { validateTaskYaml } from './validate';
 
-export function getNotifierStatePath(taskDir: string): string {
+export function getNotifierStatePath(taskDir: string, config?: TaskFlowConfig): string {
+  if (config?.notification?.snapshotPath) {
+    return path.resolve(taskDir, config.notification.snapshotPath);
+  }
   return path.join(taskDir, 'runs', 'notifier-state.json');
 }
 
@@ -26,6 +29,7 @@ export function buildSnapshot(taskDir: string, config: TaskFlowConfig): Notifier
       const lockPath = getTaskLockPath(taskDir, t.id);
       const lock = readLock(lockPath);
       const stale = lock ? isLockStale(lockPath, config.heartbeat.staleThresholdSeconds) : false;
+      const unanswered = (task.pendingQuestions || []).filter(q => !q.answered);
 
       tasks[t.id] = {
         id: t.id,
@@ -35,21 +39,22 @@ export function buildSnapshot(taskDir: string, config: TaskFlowConfig): Notifier
         bounceCount: task.bounceCount || 0,
         attemptCount: task.attemptCount || 0,
         blockedReason: task.blockedReason,
-        pendingQuestionCount: (task.pendingQuestions || []).filter(q => !q.answered).length,
+        pendingQuestionCount: unanswered.length,
+        pendingQuestions: unanswered.length > 0 ? unanswered : undefined,
         lockedBy: lock?.sessionId,
         lockStale: stale,
         updatedAt: task.updatedAt,
       };
-    } catch {
-      // Skip unparseable tasks
+    } catch (err) {
+      console.error(`Warning: unparseable task '${t.id}' — skipped in notifier snapshot`);
     }
   }
 
   return { takenAt: new Date().toISOString(), tasks };
 }
 
-export function readSnapshot(taskDir: string): NotifierSnapshot | null {
-  const statePath = getNotifierStatePath(taskDir);
+export function readSnapshot(taskDir: string, config?: TaskFlowConfig): NotifierSnapshot | null {
+  const statePath = getNotifierStatePath(taskDir, config);
   if (!fs.existsSync(statePath)) return null;
   try {
     const raw = fs.readFileSync(statePath, 'utf-8');
@@ -59,8 +64,8 @@ export function readSnapshot(taskDir: string): NotifierSnapshot | null {
   }
 }
 
-export function writeSnapshot(taskDir: string, snapshot: NotifierSnapshot): void {
-  const statePath = getNotifierStatePath(taskDir);
+export function writeSnapshot(taskDir: string, snapshot: NotifierSnapshot, config?: TaskFlowConfig): void {
+  const statePath = getNotifierStatePath(taskDir, config);
   const dir = path.dirname(statePath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
@@ -113,7 +118,7 @@ export function computeDiff(prev: NotifierSnapshot, current: NotifierSnapshot, c
         diff.newlyBlocked.push({
           taskId: id,
           name: currEntry.name,
-          questions: [],
+          questions: currEntry.pendingQuestions || [],
           previousState: prevEntry.state,
           blockedReason: currEntry.blockedReason,
         });

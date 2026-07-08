@@ -12,12 +12,17 @@ function createTask(taskDir: string, state: string, task: Partial<TaskYaml> & { 
   const stateDir = path.join(taskDir, state);
   if (!existsSync(stateDir)) mkdirSync(stateDir, { recursive: true });
   const fullTask: TaskYaml = {
-    id: task.id,
-    name: task.name,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     version: task.version || 1,
     description: task.description || '',
+    statusDescription: '',
+    lastAgentSummary: '',
+    lastAgentType: undefined,
+    lastAgentAction: '',
+    lastAgentActionAt: '',
+    attemptCount: 0,
+    bounceCount: 0,
     ...task,
   };
   writeFileSync(path.join(stateDir, `${task.id}.yaml`), stringifyYaml(fullTask), 'utf-8');

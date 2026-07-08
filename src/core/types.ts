@@ -115,6 +115,7 @@ export interface TaskSnapshotEntry {
   attemptCount: number;
   blockedReason?: string;
   pendingQuestionCount: number;
+  pendingQuestions?: PendingQuestion[];
   lockedBy?: string;
   lockStale: boolean;
   updatedAt: string;

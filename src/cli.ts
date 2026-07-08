@@ -1050,7 +1050,7 @@ program
     }
 
     if (options.reset) {
-      const statePath = getNotifierStatePath(taskDir);
+      const statePath = getNotifierStatePath(taskDir, config);
       if (fs.existsSync(statePath)) {
         fs.unlinkSync(statePath);
         console.log('Notifier snapshot cleared. Next run will report all tasks as new.');
@@ -1064,7 +1064,7 @@ program
     const currentSnapshot = buildSnapshot(taskDir, config);
 
     // Read previous snapshot
-    const prevSnapshot = readSnapshot(taskDir);
+    const prevSnapshot = readSnapshot(taskDir, config);
 
     if (!prevSnapshot) {
       // First run — report all tasks as new
@@ -1114,7 +1114,7 @@ program
         details: null,
       });
 
-      writeSnapshot(taskDir, currentSnapshot);
+      writeSnapshot(taskDir, currentSnapshot, config);
       console.log('Notifier snapshot saved. Next run will detect changes.');
       return;
     }
@@ -1130,7 +1130,7 @@ program
 
     if (!hasChanges && !config.notification.reportOnNoChange) {
       // Nothing changed — just update snapshot
-      writeSnapshot(taskDir, currentSnapshot);
+      writeSnapshot(taskDir, currentSnapshot, config);
       return;
     }
 
@@ -1174,7 +1174,7 @@ program
       details: null,
     });
 
-    writeSnapshot(taskDir, currentSnapshot);
+    writeSnapshot(taskDir, currentSnapshot, config);
   });
 
 try {
