@@ -66,6 +66,9 @@ function formatEntryMarkdown(entry: RunLogEntry): string {
   md += `- **Agent:** ${entry.agentType}${entry.agentName ? ` (${entry.agentName})` : ''}\n`;
   md += `- **Session:** ${entry.sessionId}\n`;
   md += `- **Task:** ${entry.taskId} (v${entry.taskVersion}, ${entry.taskState})\n`;
+  if (entry.fromState && entry.toState) {
+    md += `- **Transition:** ${entry.fromState} → ${entry.toState}\n`;
+  }
   md += `- **Description:** ${entry.description}\n`;
   md += `- **Result:** ${entry.result}\n`;
   md += `- **Duration:** ${entry.duration}s\n`;
@@ -177,7 +180,7 @@ export function appendReleaserLog(taskDir: string, message: string): void {
 export function appendNotifierLog(taskDir: string, message: string): void {
   const config = loadConfig(taskDir);
   if (!config.runLog.enabled) return;
-  const maxLines = 100; // notifier log uses a fixed 100-line trim
+  const maxLines = config.runLog.maxNotifierLogLines ?? 100;
 
   ensureDirs(taskDir);
 
