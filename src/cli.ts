@@ -253,7 +253,7 @@ program
 program
   .command('move <id> <state>')
   .description('Move a task to another state (from defined or pending only by default)')
-  .option('--force', 'Override lock check (use with caution)')
+  .option('--force', 'Override lock check and state transition rules (use with caution)')
   .action((id: string, state: string, options: { force?: boolean }) => {
     const taskDir = path.join(process.cwd(), '.tasks');
     const config = loadConfig(taskDir);
@@ -262,18 +262,22 @@ program
       console.error(`Task '${id}' not found.`);
       process.exit(1);
     }
-    if (config.user.allowMoveFromStates.length > 0 && !config.user.allowMoveFromStates.includes(currentState)) {
-      console.error(`Task '${id}' is in '${currentState}'. Move is only allowed from: ${config.user.allowMoveFromStates.join(', ')}.`);
-      process.exit(1);
+    if (!options.force) {
+      if (config.user.allowMoveFromStates.length > 0 && !config.user.allowMoveFromStates.includes(currentState)) {
+        console.error(`Task '${id}' is in '${currentState}'. Move is only allowed from: ${config.user.allowMoveFromStates.join(', ')}.`);
+        console.error('Use --force to override.');
+        process.exit(1);
+      }
+      if (!validateTransition(currentState, state as TaskState, 'user')) {
+        const valid = getValidTransitions(currentState, 'user');
+        console.error(`Invalid transition: ${currentState} → ${state} (actor: user).`);
+        console.error(`Valid transitions from '${currentState}' for user: ${valid.length > 0 ? valid.join(', ') : '(none — terminal state)'}`);
+        console.error('Use --force to override.');
+        process.exit(1);
+      }
     }
     if (!VALID_STATES.includes(state as TaskState)) {
       console.error(`Invalid state '${state}'. Valid: ${VALID_STATES.join(', ')}`);
-      process.exit(1);
-    }
-    if (!validateTransition(currentState, state as TaskState, 'user')) {
-      const valid = getValidTransitions(currentState, 'user');
-      console.error(`Invalid transition: ${currentState} → ${state} (actor: user).`);
-      console.error(`Valid transitions from '${currentState}' for user: ${valid.length > 0 ? valid.join(', ') : '(none — terminal state)'}`);
       process.exit(1);
     }
     try {
