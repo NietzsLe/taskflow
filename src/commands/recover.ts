@@ -88,6 +88,8 @@ export function recoverStuckTasks(taskDir: string, options: RecoverOptions = {})
               taskId: t.id,
               taskVersion: task.version,
               taskState: state,
+              fromState: state,
+              toState: 'pending',
               action: 'recover-stuck',
               description: `Recovered task '${t.id}' from ${state} to pending. Reason: ${reason}`,
               summary: `Task was stuck in ${state} with ${reason}. Moved to pending for re-pickup.`,

@@ -43,7 +43,7 @@ function logUserAction(
   taskId: string,
   taskState: string,
   description: string,
-  extra?: { summary?: string; details?: string | null; error?: string | null; result?: 'success' | 'failure' | 'stale' | 'skipped'; taskVersion?: number; startTime?: number }
+  extra?: { summary?: string; details?: string | null; error?: string | null; result?: 'success' | 'failure' | 'stale' | 'skipped'; taskVersion?: number; startTime?: number; fromState?: string; toState?: string }
 ): void {
   let taskVersion = extra?.taskVersion ?? 0;
   if (extra?.taskVersion === undefined) {
@@ -65,6 +65,8 @@ function logUserAction(
     taskId,
     taskVersion,
     taskState,
+    fromState: extra?.fromState,
+    toState: extra?.toState,
     action,
     description,
     summary: extra?.summary,
@@ -341,7 +343,10 @@ program
     }
     try {
       if (moveTask(taskDir, id, state as TaskState, { force: options.force })) {
-        logUserAction(taskDir, 'move', id, currentState, `User moved task '${id}' from ${currentState} to ${state}${options.force ? ' (forced)' : ''}${options.user ? ' (user-confirmed)' : ''}`);
+        logUserAction(taskDir, 'move', id, currentState, `User moved task '${id}' from ${currentState} to ${state}${options.force ? ' (forced)' : ''}${options.user ? ' (user-confirmed)' : ''}`, {
+          fromState: currentState,
+          toState: state,
+        });
         console.log(`Task '${id}' moved to ${state}.`);
       } else {
         console.error(`Failed to move task '${id}'.`);
@@ -434,6 +439,8 @@ program
       if (moveTask(taskDir, id, 'done')) {
         logUserAction(taskDir, 'approve', id, 'review', `User approved task '${id}'`, {
           summary: 'Task approved. Bounce count reset.',
+          fromState: 'review',
+          toState: 'done',
         });
         console.log(`Task '${id}' approved and moved to done.`);
       } else {
@@ -482,6 +489,8 @@ program
         logUserAction(taskDir, 'reject', id, 'review', `User rejected task '${id}'${blockedReason ? `: ${blockedReason}` : ''}`, {
           taskVersion,
           summary: blockedReason ? `Rejection reason: ${blockedReason}` : undefined,
+          fromState: 'review',
+          toState: 'pending',
         });
         console.log(`Task '${id}' rejected and moved to pending.${blockedReason ? ` Reason: ${blockedReason}` : ''}`);
       } else {
@@ -1007,6 +1016,8 @@ program
             logUserAction(taskDir, 'resolve-blocked', t.id, 'blocked', desc, {
               taskVersion: task.version,
               summary,
+              fromState: 'blocked',
+              toState: prevState,
             });
             console.log(`Task '${t.id}' moved back to ${prevState}.`);
           }
