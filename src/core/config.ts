@@ -39,19 +39,21 @@ export interface TaskFlowConfig {
     maxSessionLogLines: number;
     maxSessionFiles: number;
     maxReleaserLogLines: number;
+    maxNotifierLogLines: number;
   };
   executor: ExecutorConfig;
   tester: TesterConfig;
   user: {
     allowMoveFromStates: string[];
-    requireVersioningForActive: boolean;
   };
   notification: {
     enabled: boolean;
     description: string;
     channels: NotificationChannel[];
-    blockedCheckIntervalSeconds: number;
-    messageTemplate: string;
+    checkIntervalSeconds: number;
+    snapshotPath: string;
+    reportOnNoChange: boolean;
+    detailedOnIssues: boolean;
   };
   gitFlow: GitFlowConfig;
 }
@@ -213,6 +215,7 @@ export function getDefaultConfig(): TaskFlowConfig {
       maxSessionLogLines: 500,
       maxSessionFiles: 50,
       maxReleaserLogLines: 100,
+      maxNotifierLogLines: 100,
     },
     executor: {
       maxPickupAttempts: 5,
@@ -231,11 +234,10 @@ export function getDefaultConfig(): TaskFlowConfig {
     },
     user: {
       allowMoveFromStates: ['defined', 'pending', 'blocked'],
-      requireVersioningForActive: true,
     },
     notification: {
       enabled: true,
-      description: 'Configure notification channels to alert users when tasks are blocked. The notifier agent reads this config and sends alerts through all enabled channels.',
+      description: 'Configure notification channels to monitor all task state changes and alert users about transitions, new tasks, blocked tasks, bounce thresholds, stale locks, and version bumps. The notifier agent reads this config and sends alerts through all enabled channels.',
       channels: [
         {
           name: 'console-default',
@@ -334,19 +336,10 @@ Examples:
           description: 'Custom channel — describe how to send notifications and the agent will follow your instructions',
         },
       ],
-      blockedCheckIntervalSeconds: 60,
-      messageTemplate: `## Blocked: {{taskName}} ({{taskId}})
-
-**Was in:** {{previousState}} | **By:** {{agentType}} | **At:** {{timestamp}}
-**Description:** {{taskDescription}}
-
-### Questions ({{questionCount}})
-{{questionsGrouped}}
-
-### Recent activity
-{{recentRunSummary}}
-
-**Resolve:** \`npx taskflow resolve-blocked {{taskId}}\``,
+      checkIntervalSeconds: 60,
+      snapshotPath: '.tasks/runs/notifier-state.json',
+      reportOnNoChange: false,
+      detailedOnIssues: true,
     },
     gitFlow: {
       enabled: false,
@@ -405,19 +398,21 @@ export function deepMergeConfig(defaults: TaskFlowConfig, parsed: Partial<TaskFl
       maxSessionLogLines: parsed.runLog?.maxSessionLogLines ?? defaults.runLog.maxSessionLogLines,
       maxSessionFiles: parsed.runLog?.maxSessionFiles ?? defaults.runLog.maxSessionFiles,
       maxReleaserLogLines: parsed.runLog?.maxReleaserLogLines ?? defaults.runLog.maxReleaserLogLines,
+      maxNotifierLogLines: parsed.runLog?.maxNotifierLogLines ?? defaults.runLog.maxNotifierLogLines,
     },
     executor: mergeExecutorConfig(defaults.executor, parsed.executor),
     tester: mergeTesterConfig(defaults.tester, parsed.tester),
     user: {
       allowMoveFromStates: parsed.user?.allowMoveFromStates ?? defaults.user.allowMoveFromStates,
-      requireVersioningForActive: parsed.user?.requireVersioningForActive ?? defaults.user.requireVersioningForActive,
     },
     notification: {
       enabled: parsed.notification?.enabled ?? defaults.notification.enabled,
       description: parsed.notification?.description ?? defaults.notification.description,
       channels: parsed.notification?.channels ?? defaults.notification.channels,
-      blockedCheckIntervalSeconds: parsed.notification?.blockedCheckIntervalSeconds ?? defaults.notification.blockedCheckIntervalSeconds,
-      messageTemplate: parsed.notification?.messageTemplate ?? defaults.notification.messageTemplate,
+      checkIntervalSeconds: parsed.notification?.checkIntervalSeconds ?? defaults.notification.checkIntervalSeconds,
+      snapshotPath: parsed.notification?.snapshotPath ?? defaults.notification.snapshotPath,
+      reportOnNoChange: parsed.notification?.reportOnNoChange ?? defaults.notification.reportOnNoChange,
+      detailedOnIssues: parsed.notification?.detailedOnIssues ?? defaults.notification.detailedOnIssues,
     },
     gitFlow: {
       enabled: parsed.gitFlow?.enabled ?? defaults.gitFlow.enabled,

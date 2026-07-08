@@ -44,6 +44,7 @@ runLog:
   maxSessionLogLines: 500
   maxSessionFiles: 50
   maxReleaserLogLines: 100
+  maxNotifierLogLines: 100
 
 executor:
   maxPickupAttempts: 5
@@ -77,13 +78,14 @@ tester:
 
 user:
   allowMoveFromStates: ["defined", "pending", "blocked"]
-  requireVersioningForActive: true
 
 notification:
   enabled: true
   description: |
-    Configure notification channels to alert users when tasks are blocked.
-    The notifier agent reads this config and sends alerts through all enabled channels.
+    Configure notification channels to monitor all task state changes and alert users
+    about transitions, new tasks, blocked tasks, bounce thresholds, stale locks, and
+    version bumps. The notifier agent reads this config and sends alerts through all
+    enabled channels.
     Every channel MUST have a "guide" field with natural language instructions on how to connect and use it.
 
     ─────────────────────────────────────────────────────────────────────
@@ -142,6 +144,8 @@ notification:
       url: ""
       method: "POST"
       format: "slack"
+      timeoutSeconds: 10
+      retryCount: 0
       guide: |
         To set up a webhook notification channel:
 
@@ -179,6 +183,8 @@ notification:
       smtpPassword: ""
       from: ""
       to: ""
+      timeoutSeconds: 10
+      retryCount: 0
       guide: |
         To set up email notifications via SMTP:
 
@@ -223,20 +229,10 @@ notification:
         - Any custom method: Describe the exact steps and commands.
       description: "Custom channel — describe how to send notifications"
 
-  blockedCheckIntervalSeconds: 60
-  messageTemplate: |
-    ## Blocked: {{taskName}} ({{taskId}})
-
-    **Was in:** {{previousState}} | **By:** {{agentType}} | **At:** {{timestamp}}
-    **Description:** {{taskDescription}}
-
-    ### Questions ({{questionCount}})
-    {{questionsGrouped}}
-
-    ### Recent activity
-    {{recentRunSummary}}
-
-    **Resolve:** `npx taskflow resolve-blocked {{taskId}}`
+  checkIntervalSeconds: 60
+  snapshotPath: ".tasks/runs/notifier-state.json"
+  reportOnNoChange: false
+  detailedOnIssues: true
 
 # ─────────────────────────────────────────────────────────────────────
 # Git Flow (optional — disabled by default)
