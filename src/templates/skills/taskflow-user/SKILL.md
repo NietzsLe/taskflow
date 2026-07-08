@@ -74,18 +74,16 @@ Notes:
 
 ### 1.4 Versioning
 
-Implemented in `src/edit.ts` (`editTask`).
+TaskFlow versions every edit. When a user edits a task (any state):
 
-- Editing a task in `processing` or `testing`:
-  1. Snapshot current `description`, `implementationNotes`, `testFlows` into `versions.v<old>`.
-  2. Apply the new field values.
-  3. Bump `version` (`version += 1`), set `updatedAt`.
-  4. Reset `testResults` (all flows → `pass: false`, `passRatio: 0.0`).
-  5. Delete `bugs` and `blockedReason` (a new version invalidates old bug/blocked context).
-  6. Move the file back to `pending/`.
-- Editing a task in `defined` or `pending`: applied in place, `version++`, `testResults` reset if `testFlows` exist. No snapshot, no move.
-- Editing a task in `done`: **rejected** — "Cannot edit a done task. Create a new task instead."
-- Editing a task in `review`: **rejected** — "Task is in review. Reject it first, then edit."
+1. The current `description`, `implementationNotes`, `testFlows`, and `bounceCount` are snapshotted into `versions.v<old>`
+2. The edit's `changeDescription` is recorded in the snapshot
+3. `version` is bumped, `testResults` are reset
+4. If the task was in `processing` or `testing`, it is moved back to `pending`
+
+Processing status updates (`statusDescription`, `lastAgentSummary`, `lastAgentAction`, `attemptCount`, `bounceCount`) do NOT trigger versioning — they are metadata updates only.
+
+Agents periodically check the task version. If it changes while they are working, they release the lock and move on.
 
 ### 1.5 Run Log
 
@@ -135,7 +133,7 @@ File: `.tasks/config.yaml` (template in `src/templates/config.yaml`, defaults in
 | `runLog` | `enabled` + the four trimming limits above. |
 | `executor` / `tester` | `customInstructions`, `customSkills`, `customTools`, plus pickup/limits for executor. |
 | `user` | `allowMoveFromStates` (default `["defined","pending","blocked"]`) and `requireVersioningForActive`. |
-| `notification` | Channels (console/file/webhook/email/custom), `blockedCheckIntervalSeconds`, `messageTemplate`. Read by the `taskflow-notifier` skill. |
+| `notification` | Channels, `checkIntervalSeconds`, `snapshotPath`, `reportOnNoChange`, `detailedOnIssues`. Read by the `taskflow-notifier` skill. |
 
 Missing config falls back to defaults via `deepMergeConfig`, so partial configs are safe.
 
@@ -159,7 +157,7 @@ pendingQuestions:
     answered: false
 ```
 
-The `taskflow-notifier` skill sends alerts through the configured `notification.channels`. The user resolves questions via `resolve-blocked` (see 2.7), which moves the task back to its `previousState` once all questions are answered.
+The `taskflow-notifier` skill monitors all task state changes via snapshot diff and sends alerts through the configured `notification.channels`. It reports transitions, new tasks, blocked tasks, bounce thresholds, stale locks, and version bumps. The user resolves questions via `resolve-blocked` and stale locks via `unlock`.
 
 ### 1.9 Execution Status Fields
 
@@ -188,7 +186,7 @@ Installed by `taskflow init` into `.agents/skills/` (see `src/init.ts`):
 | `taskflow-executor` | Pick tasks from pending, implement, move to testing |
 | `taskflow-tester` | Pick tasks from testing, run test flows, move to review or back to processing |
 | `taskflow-lock-releaser` | Run one cleanup cycle to reap stale locks |
-| `taskflow-notifier` | Run one check cycle to alert the user about blocked tasks |
+| `taskflow-notifier` | Run one check cycle to detect task state changes and notify the user |
 | `taskflow-user` | (This skill) Help the user interact |
 | *Custom skills* | User-defined in `executor.customSkills` / `tester.customSkills` |
 
@@ -228,11 +226,11 @@ npx taskflow edit <id> -d, --description <text>
 npx taskflow edit <id> -t '[{"name":"Happy path","steps":"1. Open /login\n2. ..."}]'
 ```
 
-Behaviour by current state:
-- **defined / pending** — apply changes in place, `version++`, reset `testResults` if `testFlows` exist.
-- **processing / testing** — snapshot old fields into `versions.v<old>`, apply changes, `version++`, reset `testResults`, delete `bugs` and `blockedReason`, then move the file back to `pending/`.
-- **done** — rejected: "Cannot edit a done task. Create a new task instead."
-- **review** — rejected: "Task is in review. Reject it first, then edit."
+- **Edit behavior:**
+  - All states: snapshot old version into `versions.v<old>`, version++, record `changeDescription`, reset testResults
+  - `processing` / `testing`: additionally moved back to `pending`
+  - `done`: cannot edit
+  - `review`: cannot edit (reject first)
 
 If no field actually changed (value equals the current value), the task is not modified.
 
@@ -402,9 +400,10 @@ When `--fix` is used:
 
 | Rule | Description |
 |------|-------------|
-| **Only edit defined/pending in place** | Tasks in processing/testing must go through the versioning flow (snapshot + move to pending). |
-| **Versioning is mandatory for active tasks** | When editing a processing/testing task, the old version is snapshotted. |
-| **Reset testResults on version change** | A version bump always resets `testResults` (and clears `bugs`/`blockedReason`). |
+| **Every edit creates a version snapshot** | Old version preserved in `versions.v<old>` |
+| **Versioning is mandatory for all edits** | `changeDescription` records the reason |
+| **Status updates do NOT bump version** | `statusDescription`, `lastAgentSummary`, etc. are metadata only |
+| **Reset testResults on version change** | |
 | **Do not skip review** | Tasks must go through `review` before reaching `done` (only the user can move `review → done`). |
 | **Prefer the lock-releaser over manual unlock** | Use `taskflow unlock` only for manual recovery; the framework reaps stale locks automatically. |
 | **Custom instructions do not replace the framework** | The framework orchestrates (lock, state, run log); custom instructions only guide how the agent does the task. |

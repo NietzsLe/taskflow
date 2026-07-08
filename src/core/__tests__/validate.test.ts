@@ -119,17 +119,20 @@ describe('validateTaskYaml', () => {
     expect(task.bugs![0].flow).toBe('Happy');
   });
 
-  it('validates versions record', () => {
+  it('validates versions record with changeDescription', () => {
     const raw = validTask({
       versions: {
         v1: {
-          updatedAt: '2026-07-07T00:00:00Z',
-          description: 'old desc',
+          updatedAt: '2026-07-07T10:00:00Z',
+          description: 'v1 content',
+          changeDescription: 'Initial version',
         },
       },
     });
     const task = validateTaskYaml(raw);
-    expect(task.versions!.v1.description).toBe('old desc');
+    expect(task.versions?.v1).toBeDefined();
+    expect(task.versions!.v1.description).toBe('v1 content');
+    expect(task.versions!.v1.changeDescription).toBe('Initial version');
   });
 });
 

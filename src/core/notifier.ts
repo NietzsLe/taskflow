@@ -3,7 +3,7 @@ import * as path from 'path';
 import { parse as parseYaml } from 'yaml';
 import { TaskYaml, TaskState, TaskSnapshotEntry, NotifierSnapshot, NotifierDiff } from './types';
 import { getTaskFilePath, listTasks } from './state';
-import { loadConfig, TaskFlowConfig } from './config';
+import { TaskFlowConfig } from './config';
 import { readLock, getTaskLockPath, isLockStale } from './lock';
 import { validateTaskYaml } from './validate';
 

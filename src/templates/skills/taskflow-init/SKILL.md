@@ -132,98 +132,13 @@ Ask the user:
 
 ### Step 3.5: Configure & test notification channels
 
-This step verifies that every active notification channel can actually deliver a message. **Do not skip this step** — a misconfigured channel will silently fail when a real task gets blocked.
+Read `.tasks/config.yaml` and find the `notification` section. The notifier now monitors ALL task state changes via snapshot diff — not just blocked tasks. Key config fields:
 
-#### 3.5.1 — Read active channels
-
-1. Read `.tasks/config.yaml` → `notification` section.
-2. If `notification.enabled` is `false` → skip this step entirely. Tell the user: "Notifications are disabled. You can enable them later in .tasks/config.yaml."
-3. Filter `notification.channels` to only those with `enabled: true`.
-4. If no channels are active → tell the user: "No active notification channels. At least console and file are recommended. Edit .tasks/config.yaml to enable channels." Then skip to Step 4.
-
-#### 3.5.2 — Show active channels to the user
-
-List the active channels in a readable format:
-
-```
-Active notification channels:
-  1. [console] console-default — Output to terminal
-  2. [file]   file-default — Append to .tasks/notifications.log
-  3. [webhook] slack-alerts — POST to Slack
-```
-
-Ask the user: "I will now send a test notification through each active channel. Ready? (yes/no)"
-
-If the user says no → skip testing, tell them they can run `test notif` later via the user skill. Proceed to Step 4.
-
-#### 3.5.3 — Test each active channel
-
-For each active channel (in order):
-
-1. **Read the channel's `guide` field** — this tells you HOW to send a notification through this channel. Follow the guide exactly.
-
-2. **Announce to the user:**
-   > "Sending test notification through **[<type>] <name>**..."
-
-3. **Send a test message.** The test message must include:
-   - The channel type and name (for identification)
-   - A timestamp (so the user can match it to the test)
-   - The word "test" (so it's clearly not a real blocked-task alert)
-
-   Test message template:
-   ```
-   TaskFlow test notification — channel: <type>/<name>, time: <ISO timestamp>
-   This is a test. No action needed.
-   ```
-
-   Channel-specific sending:
-   - **console** → print the test message to the terminal.
-   - **file** → append the test message to the channel's `path` (default `.tasks/notifications.log`).
-   - **webhook** → send an HTTP POST to the channel's `url` using the channel's `format` (slack/discord/teams/generic). Use `curl` or an equivalent. The payload must contain the test message in the body.
-   - **email** → send an email using the channel's SMTP settings (`smtpHost`, `smtpPort`, `smtpUser`, `smtpPassword`, `from`, `to`). The subject should be "TaskFlow test notification" and the body should be the test message. Use `curl` with `smtp://` or an equivalent.
-   - **custom** → follow the channel's `guide` instructions exactly. The guide describes how to send; execute it.
-
-4. **Ask the user:**
-   > "Did you receive the test notification from **[<type>] <name>**? (yes/no)"
-
-5. **Handle the response:**
-   - **yes** → mark this channel as PASSED. Move to the next channel.
-   - **no** → the channel FAILED. Troubleshoot:
-     a. Re-read the channel's `guide` field and check if a step was missed.
-     b. Verify the channel's config fields are correct (URL not empty, SMTP credentials present, file path writable, etc.).
-     c. If an environment variable (`${VAR}`) is unresolved → tell the user which variable is missing and ask them to set it.
-     d. Fix the issue and **retry once**.
-     e. If the retry also fails → suggest disabling this channel:
-        > "Channel **[<type>] <name>** failed twice. Recommend setting `enabled: false` for this channel in .tasks/config.yaml. You can re-enable it later after fixing the config. Disable now? (yes/no)"
-        If yes → edit `.tasks/config.yaml` and set `enabled: false` for this channel. If no → leave it enabled (user accepts the risk).
-
-#### 3.5.4 — Report summary
-
-After testing all active channels:
-
-```
-Notification channel test results:
-  ✓ [console] console-default — passed
-  ✓ [file]   file-default — passed
-  ✗ [webhook] slack-alerts — failed (disabled per user request)
-  ✓ [email]  email-default — passed
-
-Summary: 3 passed, 1 failed.
-```
-
-If any channel failed and was not disabled → warn the user:
-> "Warning: <channel> is enabled but did not pass the test. Notifications through this channel may silently fail when a task is blocked."
-
-#### 3.5.5 — Guide adding a new channel (optional)
-
-Ask the user: "Would you like to add a new notification channel? (e.g. a second webhook for Discord, a Telegram custom channel)"
-
-If yes:
-1. Ask which type (webhook, email, custom).
-2. Ask for a `name` to identify this instance (required when there are multiple instances of the same type).
-3. Help the user fill in the config fields per the channel type's guide.
-4. Set `enabled: true`.
-5. Test the new channel using the same procedure as 3.5.3.
+- `checkIntervalSeconds` — how often the notifier runs (handled by /loop)
+- `snapshotPath` — where the state snapshot is stored
+- `reportOnNoChange` — whether to notify when nothing changed
+- `detailedOnIssues` — whether issues get detailed formatting
+- `channels` — the list of notification channels
 
 ### Step 4: Verify installation
 

@@ -2,12 +2,15 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { mkdtempSync } from 'fs';
+import { tmpdir } from 'os';
 import { stringify as stringifyYaml, parse as parseYaml } from 'yaml';
 import { ensureStateDirs, TaskLockedError } from '../core/state';
 import { acquireTaskLock } from '../core/lock';
 import { TaskYaml, TaskState } from '../core/types';
 import { editTask } from '../edit';
 import { writeDefaultConfig } from '../core/test-util';
+import { validateTaskYaml } from '../core/validate';
 
 let tmpDir: string;
 let taskDir: string;
@@ -106,5 +109,66 @@ describe('editTask lock check (A3)', () => {
     expect(task.description).toBe('v2 content');
     expect(task.versions?.v1).toBeDefined();
     expect(task.versions?.v1.description).toBe('v1 content');
+  });
+
+  it('creates version snapshot when editing a defined task', () => {
+    const taskDir2 = mkdtempSync(path.join(tmpdir(), 'edit-test-'));
+    for (const s of ['defined', 'pending', 'processing', 'testing', 'review', 'done', 'blocked']) {
+      fs.mkdirSync(path.join(taskDir2, s), { recursive: true });
+    }
+    fs.mkdirSync(path.join(taskDir2, 'locks'), { recursive: true });
+    fs.mkdirSync(path.join(taskDir2, 'runs'), { recursive: true });
+    const task: TaskYaml = {
+      id: 'test-task_001',
+      name: 'Test Task',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      version: 1,
+      description: 'v1 content',
+      testResults: { lastRun: null, flows: {}, passRatio: 0 },
+    };
+    fs.writeFileSync(path.join(taskDir2, 'defined', 'test-task_001.yaml'), stringifyYaml(task), 'utf-8');
+
+    editTask(taskDir2, 'test-task_001', { description: 'v2 content', changeDescription: 'Updated description' });
+
+    const raw = fs.readFileSync(path.join(taskDir2, 'defined', 'test-task_001.yaml'), 'utf-8');
+    const updated = validateTaskYaml(parseYaml(raw));
+    expect(updated.version).toBe(2);
+    expect(updated.description).toBe('v2 content');
+    expect(updated.versions?.v1).toBeDefined();
+    expect(updated.versions!.v1.description).toBe('v1 content');
+    expect(updated.versions!.v1.changeDescription).toBe('Updated description');
+    fs.rmSync(taskDir2, { recursive: true, force: true });
+  });
+
+  it('status-update does not bump version', () => {
+    const taskDir2 = mkdtempSync(path.join(tmpdir(), 'edit-test-'));
+    for (const s of ['pending', 'processing', 'testing', 'review', 'done', 'blocked', 'defined']) {
+      fs.mkdirSync(path.join(taskDir2, s), { recursive: true });
+    }
+    fs.mkdirSync(path.join(taskDir2, 'locks'), { recursive: true });
+    fs.mkdirSync(path.join(taskDir2, 'runs'), { recursive: true });
+    const task: TaskYaml = {
+      id: 'test-task_001',
+      name: 'Test Task',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      version: 1,
+      description: 'test',
+      testResults: { lastRun: null, flows: {}, passRatio: 0 },
+    };
+    fs.writeFileSync(path.join(taskDir2, 'pending', 'test-task_001.yaml'), stringifyYaml(task), 'utf-8');
+
+    const filePath = path.join(taskDir2, 'pending', 'test-task_001.yaml');
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    const t = validateTaskYaml(parseYaml(raw));
+    t.statusDescription = 'Working on it';
+    t.updatedAt = new Date().toISOString();
+    fs.writeFileSync(filePath, stringifyYaml(t), 'utf-8');
+
+    const updated = validateTaskYaml(parseYaml(fs.readFileSync(filePath, 'utf-8')));
+    expect(updated.version).toBe(1);
+    expect(updated.statusDescription).toBe('Working on it');
+    fs.rmSync(taskDir2, { recursive: true, force: true });
   });
 });

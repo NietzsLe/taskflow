@@ -312,6 +312,33 @@ describe('loadConfig env var resolution (G1)', () => {
   });
 });
 
+describe('new notification config fields', () => {
+  it('defaults checkIntervalSeconds to 60', () => {
+    const config = getDefaultConfig();
+    expect(config.notification.checkIntervalSeconds).toBe(60);
+  });
+
+  it('defaults snapshotPath to .tasks/runs/notifier-state.json', () => {
+    const config = getDefaultConfig();
+    expect(config.notification.snapshotPath).toBe('.tasks/runs/notifier-state.json');
+  });
+
+  it('defaults reportOnNoChange to false', () => {
+    const config = getDefaultConfig();
+    expect(config.notification.reportOnNoChange).toBe(false);
+  });
+
+  it('defaults detailedOnIssues to true', () => {
+    const config = getDefaultConfig();
+    expect(config.notification.detailedOnIssues).toBe(true);
+  });
+
+  it('defaults maxNotifierLogLines to 100', () => {
+    const config = getDefaultConfig();
+    expect(config.runLog.maxNotifierLogLines).toBe(100);
+  });
+});
+
 describe('deepMergeConfig', () => {
   it('merges shallow for heartbeat (spread)', () => {
     const def = getDefaultConfig();
