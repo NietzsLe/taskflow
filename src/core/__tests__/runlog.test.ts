@@ -5,6 +5,7 @@ import * as os from 'os';
 import {
   appendRunLog,
   appendReleaserLog,
+  appendNotifierLog,
   readTaskLog,
   readSessionLog,
   readAllSessionLogs,
@@ -12,6 +13,7 @@ import {
   getSessionsDir,
   getTasksLogDir,
   getReleaserLogPath,
+  getNotifierLogPath,
   getGlobalSeqPath,
 } from '../runlog';
 import { ensureStateDirs } from '../state';
@@ -107,6 +109,17 @@ describe('appendRunLog', () => {
     expect(fs.existsSync(getSessionsDir(taskDir))).toBe(true);
     expect(fs.existsSync(getTasksLogDir(taskDir))).toBe(true);
   });
+
+  it('renders fromState/toState in markdown', () => {
+    appendRunLog(taskDir, entry({
+      sessionId: 'trans-sess',
+      taskId: 'test-task_001',
+      fromState: 'pending',
+      toState: 'processing',
+    }));
+    const log = readSessionLog(taskDir, 'trans-sess');
+    expect(log).toContain('**Transition:** pending → processing');
+  });
 });
 
 describe('appendReleaserLog', () => {
@@ -129,6 +142,42 @@ describe('appendReleaserLog', () => {
     fs.writeFileSync(releaserPath, '# initial\n', 'utf-8');
     appendReleaserLog(taskDir, 'should not appear');
     const log = fs.readFileSync(releaserPath, 'utf-8');
+    expect(log).not.toContain('should not appear');
+  });
+});
+
+describe('appendNotifierLog', () => {
+  it('appends to notifier-log.md', () => {
+    appendNotifierLog(taskDir, '- Test message');
+    const logPath = getNotifierLogPath(taskDir);
+    expect(fs.existsSync(logPath)).toBe(true);
+    const content = fs.readFileSync(logPath, 'utf-8');
+    expect(content).toContain('Test message');
+    expect(content).toMatch(/^## /m);
+  });
+
+  it('trims to maxNotifierLogLines', () => {
+    // Write more than 100 lines
+    for (let i = 0; i < 150; i++) {
+      appendNotifierLog(taskDir, `- Line ${i}`);
+    }
+    const logPath = getNotifierLogPath(taskDir);
+    const content = fs.readFileSync(logPath, 'utf-8');
+    const lines = content.split('\n').filter(l => l.trim());
+    expect(lines.length).toBeLessThanOrEqual(102); // 100 + header
+  });
+
+  it('is no-op when runLog disabled (file not created)', () => {
+    fs.writeFileSync(
+      path.join(taskDir, 'config.yaml'),
+      'runLog:\n  enabled: false\n',
+      'utf-8'
+    );
+    const notifierPath = getNotifierLogPath(taskDir);
+    fs.mkdirSync(path.dirname(notifierPath), { recursive: true });
+    fs.writeFileSync(notifierPath, '# initial\n', 'utf-8');
+    appendNotifierLog(taskDir, 'should not appear');
+    const log = fs.readFileSync(notifierPath, 'utf-8');
     expect(log).not.toContain('should not appear');
   });
 });
